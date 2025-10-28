@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: mp-agent-c2
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd server && gunicorn --bind 0.0.0.0:$PORT c2_dashboard:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.0
+
+  - type: web
+    name: mp-agent-malicious
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd server && gunicorn --bind 0.0.0.0:$PORT malicious_server:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.0

