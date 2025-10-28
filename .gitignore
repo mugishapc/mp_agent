@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# SQLite database
+mp_agent.db
+*.sqlite3
+
+# Flask instance / local env files
+instance/
+.env
+.env.local
+
+# IDE / OS
+.vscode/
+.DS_Store
+Thumbs.db

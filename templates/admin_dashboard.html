@@ -254,15 +254,41 @@
     <!-- Command Section -->
     <div class="section" id="commands">
         <h2>⚡ Send Command</h2>
+        
+        <!-- Debug Info -->
+        <div style="background: #2d2d2d; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #667eea;">
+            <strong>Debug Info:</strong> 
+            Total Agents in Database: {{ all_agents|length }} | 
+            Active Agents: {{ agents|length }} |
+            <a href="/debug/agents" style="color: #4CAF50;">View All Agents</a> |
+            <a href="/test/register_agent" style="color: #ff9800;">Test Registration</a>
+        </div>
+        
         <form action="/admin/command" method="post">
             <div class="form-group">
                 <label for="agent_id_cmd">Select Agent</label>
                 <select id="agent_id_cmd" name="agent_id" required>
                     <option value="">-- Select Agent --</option>
-                    {% for agent in agents %}
-                    <option value="{{ agent['agent_id'] }}">{{ agent['agent_id'] }} ({{ agent['phone_model'] }})</option>
-                    {% endfor %}
+                    {% if all_agents %}
+                        {% for agent in all_agents %}
+                        <option value="{{ agent['agent_id'] }}">
+                            {{ agent['agent_id'] }} 
+                            ({{ agent['phone_model'] or 'Unknown' }}) 
+                            - {{ agent['status'] }}
+                            - Last: {{ agent['last_seen'] or 'Never' }}
+                        </option>
+                        {% endfor %}
+                    {% else %}
+                        <option value="" disabled>No agents found in database</option>
+                    {% endif %}
                 </select>
+                {% if not all_agents %}
+                <div style="color: #ff4444; margin-top: 10px;">
+                    ⚠️ No agents found in database. 
+                    <a href="/test/register_agent" style="color: #4CAF50;">Register a test agent</a> or 
+                    deploy a real agent.
+                </div>
+                {% endif %}
             </div>
             <div class="form-group">
                 <label for="command">Command</label>
@@ -280,7 +306,9 @@
                 <label for="custom_command">Custom Command</label>
                 <input type="text" id="custom_command" name="custom_command" placeholder="Enter custom command">
             </div>
-            <button type="submit" class="btn btn-warning">🚀 Send Command</button>
+            <button type="submit" class="btn btn-warning" {% if not all_agents %}disabled{% endif %}>
+                🚀 Send Command
+            </button>
         </form>
 
         <h3 style="margin-top: 30px;">Recent Commands</h3>
