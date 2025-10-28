@@ -22,3 +22,6 @@ instance/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Ignore database files
+*.db

