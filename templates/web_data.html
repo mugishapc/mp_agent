@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Web Agent Data - MP_AGENT</title>
+    <style>
+        body { font-family: Arial; background: #1a1a1a; color: white; padding: 20px; }
+        .data-card { background: #2d2d2d; padding: 15px; margin: 10px 0; border-radius: 8px; }
+        .json-pre { background: #000; padding: 10px; border-radius: 5px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>📊 Web Agent Data: {{ agent.agent_id if agent else 'Unknown' }}</h1>
+    <a href="/admin">← Back to Admin</a>
+    
+    {% for data in web_data %}
+    <div class="data-card">
+        <strong>Type:</strong> {{ data.data_type }} | 
+        <strong>Time:</strong> {{ data.timestamp }}
+        <div class="json-pre">{{ data.data_content }}</div>
+    </div>
+    {% else %}
+    <p>No web data collected yet.</p>
+    {% endfor %}
+</body>
+</html>

