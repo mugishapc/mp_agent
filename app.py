@@ -159,15 +159,21 @@ def debug_agents():
     
     result = "<h1>All Agents in Database</h1>"
     for agent in agents:
+        # Convert sqlite3.Row to dict for safe access
+        agent_dict = dict(agent)
+        user_agent = agent_dict.get('user_agent', 'N/A')
+        if not user_agent:
+            user_agent = 'N/A'
+            
         result += f"""
         <div style="border: 1px solid #ccc; padding: 10px; margin: 10px;">
-            <strong>ID:</strong> {agent['id']}<br>
-            <strong>Agent ID:</strong> {agent['agent_id']}<br>
-            <strong>Status:</strong> {agent['status']}<br>
-            <strong>Phone Model:</strong> {agent['phone_model']}<br>
-            <strong>User Agent:</strong> {agent.get('user_agent', 'N/A')}<br>
-            <strong>Last Seen:</strong> {agent['last_seen']}<br>
-            <strong>First Seen:</strong> {agent['first_seen']}<br>
+            <strong>ID:</strong> {agent_dict['id']}<br>
+            <strong>Agent ID:</strong> {agent_dict['agent_id']}<br>
+            <strong>Status:</strong> {agent_dict['status']}<br>
+            <strong>Phone Model:</strong> {agent_dict['phone_model']}<br>
+            <strong>User Agent:</strong> {user_agent}<br>
+            <strong>Last Seen:</strong> {agent_dict['last_seen']}<br>
+            <strong>First Seen:</strong> {agent_dict['first_seen']}<br>
         </div>
         """
     
@@ -220,8 +226,7 @@ def dashboard():
         'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
         'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
         'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0],
-        'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0],
-        'web_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE user_agent LIKE '%Mozilla%'").fetchone()[0]
+        'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0]
     }
     
     # Get recent data - Convert rows to dictionaries
@@ -261,8 +266,7 @@ def admin_dashboard():
         'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
         'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0],
         'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0],
-        'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0],
-        'web_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE user_agent LIKE '%Mozilla%'").fetchone()[0]
+        'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0]
     }
     
     # Get recent data - Convert rows to dictionaries
