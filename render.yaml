@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: cd server && gunicorn --bind 0.0.0.0:$PORT c2_dashboard:app
+    startCommand: gunicorn --bind 0.0.0.0:$PORT server.c2_dashboard:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.0
@@ -14,7 +14,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: cd server && gunicorn --bind 0.0.0.0:$PORT malicious_server:app
+    startCommand: gunicorn --bind 0.0.0.0:$PORT server.malicious_server:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.0

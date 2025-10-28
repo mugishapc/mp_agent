@@ -91,5 +91,5 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
-# Initialize database
+# Initialize database when imported
 db = DatabaseManager()
