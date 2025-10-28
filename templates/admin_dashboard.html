@@ -124,10 +124,12 @@
     <div class="debug-section">
         <strong>🔧 Debug Tools:</strong> 
         <a href="/debug/agents">View All Agents in DB</a> | 
+        <a href="/debug/screenshots">View All Screenshots in DB</a> | 
         <a href="/test/register_agent">Test Agent Registration</a> | 
         <a href="/debug/fix_database">Fix Database Schema</a> |
         <strong>Total Agents:</strong> {{ all_agents|length }} | 
-        <strong>Active Agents:</strong> {{ agents|length }}
+        <strong>Active Agents:</strong> {{ agents|length }} |
+        <strong>Total Screenshots:</strong> {{ stats.total_screenshots }}
     </div>
 
     <!-- Statistics -->
@@ -206,14 +208,14 @@
 
     <!-- Screenshots Section -->
     <div class="section" id="screenshots">
-        <h2>🖼️ Recent Screenshots</h2>
+        <h2>🖼️ Recent Screenshots ({{ screenshots|length }})</h2>
         {% if screenshots %}
         <div class="screenshot-grid">
             {% for screenshot in screenshots %}
             <div class="screenshot-item">
                 <a href="/media/screenshot/{{ screenshot.id }}" target="_blank">
                     <img src="/media/screenshot/{{ screenshot.id }}" alt="Screenshot" class="screenshot-img"
-                         onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDIwMCAxMjAiIGZpbGw9IiMzZDNkM2QiPjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMTIwIi8+PHRleHQgeD0iMTAwIiB5PSI2MCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE0IiBmaWxsPSIjODg4IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5TY3JlZW5zaG90IE5vdCBGb3VuZDwvdGV4dD48L3N2Zz4='">
+                         onerror="this.style.background='#2d2d2d'; this.innerHTML='<div style=padding:40px;color:#888>No Image</div>'">
                 </a>
                 <div style="margin-top: 10px;">
                     <strong>{{ screenshot.agent_id }}</strong><br>
@@ -224,7 +226,11 @@
             {% endfor %}
         </div>
         {% else %}
-        <p style="text-align: center; padding: 40px; color: #888;">No screenshots yet. Agents will upload automatically.</p>
+        <div style="text-align: center; padding: 40px; color: #888;">
+            <p>No screenshots yet. Agents will upload automatically.</p>
+            <p><small>Database shows {{ stats.total_screenshots }} total screenshots</small></p>
+            <a href="/debug/screenshots" class="btn btn-warning">Debug Screenshots</a>
+        </div>
         {% endif %}
     </div>
 

