@@ -6,8 +6,6 @@ import time
 import base64
 from threading import Lock
 import logging
-import io
-from PIL import Image, ImageDraw
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'mp_agent_platform_2024')
@@ -628,14 +626,8 @@ def serve_screenshot(screenshot_id):
         if screenshot and screenshot['screenshot_data']:
             return Response(screenshot['screenshot_data'], mimetype='image/jpeg')
         
-        # Return placeholder
-        img = Image.new('RGB', (400, 300), color='#1a1a1a')
-        d = ImageDraw.Draw(img)
-        d.text((100, 140), "No Screenshot Available", fill='white')
-        img_io = io.BytesIO()
-        img.save(img_io, 'JPEG')
-        img_io.seek(0)
-        return Response(img_io.getvalue(), mimetype='image/jpeg')
+        # Return simple text response for missing screenshots
+        return "Screenshot not available", 404
         
     except Exception as e:
         logger.error(f"Screenshot serve error: {e}")
