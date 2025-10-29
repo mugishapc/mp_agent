@@ -653,8 +653,9 @@ def deploy_agent():
         ))
         
         if not existing_agent:
+            # FIXED: Correct number of placeholders
             conn.execute(
-                'INSERT INTO agents (agent_id, status, first_seen, last_seen, is_real_device) VALUES (?, ?, ?, ?, 1)',
+                'INSERT INTO agents (agent_id, status, first_seen, last_seen, is_real_device) VALUES (?, ?, ?, ?, ?)',
                 (agent_id, 'deployed', datetime.now(), datetime.now(), 1)
             )
             conn.commit()
